@@ -15,7 +15,7 @@ The Ubuntu Server Unattended ISO Builder is fully implemented with all planned f
 - ✅ **Native Tools Philosophy**: Zero external dependencies
 - ✅ **Python Fallback**: Works in restricted environments
 - ✅ **Interactive Generator**: User-friendly profile creation
-- ✅ **GitLab CI/CD**: Automated builds and releases
+- ✅ **GitHub Actions**: Automated builds and releases
 
 ## Implementation Summary
 
@@ -116,7 +116,7 @@ The Ubuntu Server Unattended ISO Builder is fully implemented with all planned f
 #### Specialized Profiles
 6. **security-hardened**: CIS benchmark, encryption, audit logging
 7. **hyper-v-optimized**: Integration services, enhanced session
-8. **ci-cd-runner**: GitLab Runner, Docker-in-Docker
+8. **ci-cd-runner**: GitHub Actions runner, Docker-in-Docker
 9. **monitoring-server**: Prometheus, Grafana, exporters
 
 #### Example Profiles
@@ -186,29 +186,32 @@ Comprehensive testing approach:
 3. **Subiquity Validation**: Official tool (if available)
 4. **Integration**: Automatic in build process
 
-### GitLab CI/CD Integration
+### GitHub Actions Integration
 ```yaml
-stages:
-  - test
-  - build
-  - release
+name: CI/CD Pipeline
 
-test:
-  script:
-    - NO_COLOR=1 ./test.sh
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  release:
+    types: [created]
 
-build:
-  script:
-    - ./build-all.sh
-  artifacts:
-    paths:
-      - output/*.iso
-
-release:
-  script:
-    - Create GitLab release
-  only:
-    - tags
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: NO_COLOR=1 ./test.sh
+  
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./build-all.sh
+      - uses: actions/upload-artifact@v3
+        with:
+          path: output/*.iso
 ```
 
 ## Known Limitations
@@ -285,7 +288,7 @@ release:
 
 ### Parallel Processing
 - Multiple profiles can build concurrently
-- GitLab CI parallel jobs
+- GitHub Actions parallel jobs
 - Resource-aware execution
 
 ## Project Philosophy

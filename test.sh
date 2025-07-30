@@ -236,23 +236,29 @@ test_environment_config() {
     fi
 }
 
-# Test 7: GitLab CI configuration
-test_gitlab_ci() {
-    test_case "GitLab CI configuration"
+# Test 7: GitHub Actions configuration
+test_github_actions() {
+    test_case "GitHub Actions configuration"
     
-    if [ -f ".gitlab-ci.yml" ]; then
-        pass ".gitlab-ci.yml exists"
+    if [ -f ".github/workflows/ci.yml" ]; then
+        pass "GitHub Actions workflow exists"
         
         # Basic YAML validation
         if command_exists "yq"; then
-            if yq eval '.' .gitlab-ci.yml >/dev/null 2>&1; then
-                pass ".gitlab-ci.yml has valid YAML syntax"
+            if yq eval '.' .github/workflows/ci.yml >/dev/null 2>&1; then
+                pass "GitHub Actions workflow has valid YAML syntax"
             else
-                fail ".gitlab-ci.yml has invalid YAML syntax"
+                fail "GitHub Actions workflow has invalid YAML syntax"
+            fi
+        elif command_exists "python3" && python3 -c "import yaml" 2>/dev/null; then
+            if python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" 2>/dev/null; then
+                pass "GitHub Actions workflow has valid YAML syntax"
+            else
+                fail "GitHub Actions workflow has invalid YAML syntax"
             fi
         fi
     else
-        fail ".gitlab-ci.yml is missing"
+        fail "GitHub Actions workflow is missing"
     fi
 }
 
@@ -428,7 +434,7 @@ main() {
     test_required_scripts
     test_profile_validation
     test_environment_config
-    test_gitlab_ci
+    test_github_actions
     test_gitignore
     test_iso_download
     test_iso_tools

@@ -264,16 +264,16 @@ ISOs are named: `{profile-name}-ubuntu-{version}-{date}.iso`
 
 Example: `minimal-server-ubuntu-22.04.3-20240115.iso`
 
-### From GitLab Releases
+### From GitHub Releases
 
 1. Navigate to [Releases](../../releases)
 2. Download the ISO for your desired profile
 3. Write to USB or use with virtualization
 
-### From CI/CD Artifacts
+### From GitHub Actions Artifacts
 
-1. Go to [CI/CD → Pipelines](../../pipelines)
-2. Click on a successful pipeline
+1. Go to [Actions](../../actions)
+2. Click on a successful workflow run
 3. Download artifacts containing ISOs
 
 ## 🧪 Testing
@@ -419,3 +419,4 @@ For issues or questions:
 - Review the [Wiki](../../wiki) for guides
 - Review [CLAUDE.md](CLAUDE.md) for technical architecture details
 - Contact the project maintainers
+- Use GitHub CLI: `gh issue create` or `gh pr create`

@@ -80,7 +80,8 @@
       "Bash(make:*)",
       "Bash(bin/build-iso:*)",
       "Bash(diff:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(git config:*)"
     ],
     "deny": []
   }
