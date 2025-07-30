@@ -1,10 +1,10 @@
 # Claude Code Docker Build and Run Instructions
 
-This guide explains how to build and run the Claude Code Docker container with GitLab development tools.
+This guide explains how to build and run the Claude Code Docker container with GitHub development tools.
 
 ## Features
 - Based on Ubuntu 24.04 LTS
-- Includes GitLab CLI (`glab`) for pipeline monitoring
+- Includes GitHub CLI (`gh`) for workflow monitoring and management
 - Python 3 with pip for scripting
 - ISO manipulation tools (xorriso, genisoimage)
 - Development tools (git, ripgrep, jq, vim)
@@ -58,30 +58,43 @@ Open your shell in this directory and run the appropriate script:
 
 ---
 
-## Using GitLab CLI
+## Using GitHub CLI
 
-After building the new image, you can use GitLab CLI inside Claude Code:
+After building the new image, you can use GitHub CLI inside Claude Code:
 
 ```bash
-# Authenticate with GitLab
-glab auth login --hostname your-gitlab-instance.com
+# Authenticate with GitHub
+gh auth login
 
-# Check pipeline status
-glab ci list
-glab ci view
+# Check workflow status
+gh workflow list
+gh run list
+gh run view
 
-# Work with merge requests
-glab mr list
-glab mr create
+# Work with pull requests
+gh pr list
+gh pr create
+gh pr review
+
+# Work with issues
+gh issue list
+gh issue create
 ```
 
 For the Ubuntu ISO project:
 ```bash
-# Set up authentication for the UNM GitLab
-glab auth login --hostname hsc-ctsc-git.health.unm.edu
+# Clone the repository
+gh repo clone jwylesUNM/ubuntu-server-unattended-iso
 
-# Check pipelines
-glab ci list --repo noops/ubuntu-server-unattended-iso
+# Check workflow runs
+gh run list
+gh run view --web
+
+# Download artifacts
+gh run download
+
+# Create releases
+gh release create v1.0.0 --title "Version 1.0.0" --generate-notes
 ```
 
 ---

@@ -1,7 +1,7 @@
 # Ubuntu Server Unattended ISO Builder - Technical Architecture
 
 ## Overview
-This project creates unattended Ubuntu Server installation ISOs by injecting autoinstall.yaml configurations into official Ubuntu Server ISOs. It supports multiple server profiles and includes an interactive generator for creating custom configurations.
+This GitHub Actions-powered project creates unattended Ubuntu Server installation ISOs by injecting autoinstall.yaml configurations into official Ubuntu Server ISOs. It leverages GitHub's CI/CD infrastructure for automated builds, testing, and releases while supporting multiple server profiles and including an interactive generator for creating custom configurations.
 
 ## 🎉 Project Status: 100% Complete and Production Ready
 
@@ -15,7 +15,8 @@ The Ubuntu Server Unattended ISO Builder is fully implemented with all planned f
 - ✅ **Native Tools Philosophy**: Zero external dependencies
 - ✅ **Python Fallback**: Works in restricted environments
 - ✅ **Interactive Generator**: User-friendly profile creation
-- ✅ **GitHub Actions**: Automated builds and releases
+- ✅ **GitHub Actions CI/CD**: Automated builds, tests, and releases
+- ✅ **GitHub CLI Integration**: Streamlined workflow management
 
 ## Implementation Summary
 
@@ -290,6 +291,57 @@ jobs:
 - Multiple profiles can build concurrently
 - GitHub Actions parallel jobs
 - Resource-aware execution
+
+## GitHub Integration
+
+### GitHub Actions Workflow
+The project uses GitHub Actions for complete CI/CD automation:
+
+```yaml
+# .github/workflows/ci.yml
+name: CI/CD Pipeline
+on:
+  push: [master, main]
+  pull_request:
+  release:
+    types: [created]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  test:         # Validates code and profiles
+  security:     # Scans for security issues
+  build:        # Builds ISOs in parallel
+  release:      # Creates GitHub releases
+```
+
+### GitHub CLI Usage
+Common commands for project management:
+
+```bash
+# Check workflow status
+gh workflow list
+gh run list
+
+# Download artifacts
+gh run download <run-id>
+
+# Create issues
+gh issue create --title "Bug: ..." --body "..."
+
+# Create pull requests
+gh pr create --title "Feature: ..." --body "..."
+
+# Release management
+gh release create v1.0.0 --title "Release v1.0.0" --notes "..."
+```
+
+### Benefits of GitHub Platform
+- **Free CI/CD**: GitHub Actions provides generous free tier
+- **No Runner Setup**: Managed runners just work
+- **Artifact Storage**: Automatic artifact management
+- **Release Management**: Integrated release creation
+- **Security Scanning**: Built-in security features
+- **API Access**: Full automation via GitHub CLI
 
 ## Project Philosophy
 

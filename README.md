@@ -1,6 +1,10 @@
 # Ubuntu Server Unattended ISO Builder
 
-A professional tool for creating unattended Ubuntu Server installation ISOs with custom configurations. This project automates the process of downloading Ubuntu Server ISOs, injecting autoinstall.yaml configurations, and repackaging them for automated deployments.
+[![CI/CD Pipeline](https://github.com/jwylesUNM/ubuntu-server-unattended-iso/actions/workflows/ci.yml/badge.svg)](https://github.com/jwylesUNM/ubuntu-server-unattended-iso/actions)
+[![GitHub release](https://img.shields.io/github/release/jwylesUNM/ubuntu-server-unattended-iso.svg)](https://github.com/jwylesUNM/ubuntu-server-unattended-iso/releases)
+[![License](https://img.shields.io/github/license/jwylesUNM/ubuntu-server-unattended-iso.svg)](LICENSE)
+
+A professional GitHub Actions-powered tool for creating unattended Ubuntu Server installation ISOs with custom configurations. This project automates the process of downloading Ubuntu Server ISOs, injecting autoinstall.yaml configurations, and repackaging them for automated deployments.
 
 ## 🚀 Features
 
@@ -9,7 +13,8 @@ A professional tool for creating unattended Ubuntu Server installation ISOs with
 - **Profile Validation** - Built-in validation using Canonical's Subiquity validator
 - **Interactive Generator** - Wizard to create custom autoinstall.yaml configurations
 - **VM Testing Framework** - Test ISOs in virtual machines (Hyper-V, QEMU/KVM)
-- **GitLab CI/CD Integration** - Automated building and releasing of ISOs
+- **GitHub Actions CI/CD** - Automated building, testing, and releasing of ISOs
+- **GitHub CLI Integration** - Streamlined workflow and release management
 - **Ubuntu Update Checker** - Stay informed about new Ubuntu releases
 - **Native Tools Only** - No external dependencies required
 - **Python Fallback** - Works in restricted environments (Docker, CI/CD)
@@ -24,8 +29,13 @@ This project uses native Linux tools that are typically pre-installed:
 # Required tools (usually pre-installed)
 mount, umount, dd, python3, wget, curl
 
-# Optional (for better performance)
+# Optional (for better performance and GitHub integration)
 sudo apt-get install -y genisoimage python3-yaml
+
+# Install GitHub CLI (included in make install)
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+sudo apt update && sudo apt install gh
 ```
 
 **Note**: The project automatically detects available tools and uses:
@@ -37,7 +47,11 @@ sudo apt-get install -y genisoimage python3-yaml
 
 ```bash
 # Clone and setup
-git clone https://gitlab.com/your-org/ubuntu-server-unattended-iso.git
+git clone https://github.com/jwylesUNM/ubuntu-server-unattended-iso.git
+cd ubuntu-server-unattended-iso
+
+# Or use GitHub CLI
+gh repo clone jwylesUNM/ubuntu-server-unattended-iso
 cd ubuntu-server-unattended-iso
 
 # One-time setup
@@ -407,6 +421,46 @@ VERBOSE=1 ./build-iso.sh --profile minimal-server
 - [Ubuntu Autoinstall Reference](https://ubuntu.com/server/docs/install/autoinstall)
 - [Cloud-init Documentation](https://cloudinit.readthedocs.io/)
 - [Subiquity Installer](https://github.com/canonical/subiquity)
+
+## 🔧 GitHub Integration
+
+### GitHub Actions Status
+View the latest build status and download artifacts:
+- [Actions](https://github.com/jwylesUNM/ubuntu-server-unattended-iso/actions)
+- [Latest Release](https://github.com/jwylesUNM/ubuntu-server-unattended-iso/releases/latest)
+
+### Using GitHub CLI
+
+```bash
+# Check workflow runs
+gh run list
+gh run view
+
+# Download artifacts from a specific run
+gh run download <run-id>
+
+# Create an issue
+gh issue create --title "Feature request: ..." --body "..."
+
+# Create a pull request
+gh pr create --title "Add new profile: ..." --body "..."
+
+# Create a new release
+gh release create v1.0.0 --title "Version 1.0.0" --generate-notes
+
+# Download ISOs from latest release
+gh release download latest
+```
+
+### Triggering Builds
+
+```bash
+# Manually trigger a workflow run
+gh workflow run ci.yml
+
+# Watch the workflow progress
+gh run watch
+```
 
 ## 📄 License
 

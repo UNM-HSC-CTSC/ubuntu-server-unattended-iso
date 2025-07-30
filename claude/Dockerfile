@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /root
 
-# Install essential tools, Node.js, and GitLab CLI
+# Install essential tools, Node.js, and GitHub CLI
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
@@ -29,17 +29,20 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GitLab CLI (glab)
-# Note: Use linux_amd64 (lowercase) for the correct download URL
-RUN curl -L "https://gitlab.com/gitlab-org/cli/-/releases/v1.64.0/downloads/glab_1.64.0_linux_amd64.deb" -o /tmp/glab.deb \
-    && dpkg -i /tmp/glab.deb \
-    && rm -f /tmp/glab.deb
+# Install GitHub CLI (gh)
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code globally
 RUN npm install -g @anthropic-ai/claude-code \
     && mkdir -p /root/.claude
 
 # Verify installations
-RUN node --version && npm --version && glab --version
+RUN node --version && npm --version && gh --version
 
 CMD ["claude"]
