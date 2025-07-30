@@ -89,7 +89,7 @@ jobs:
           fi
 
       - name: Upload ISO artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.profile }}-ubuntu-${{ env.UBUNTU_VERSION }}
           path: output/*.iso
@@ -128,7 +128,7 @@ jobs:
         run: ls -la output/
 
       - name: Upload all ISOs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: all-ubuntu-isos-${{ github.sha }}
           path: output/*.iso
