@@ -6,6 +6,8 @@
 
 A professional command-line tool for creating unattended Ubuntu Server installation ISOs with custom configurations. This project automates the process of downloading Ubuntu Server ISOs, injecting autoinstall.yaml configurations, and repackaging them for automated deployments.
 
+**LTS First**: We recommend and default to Ubuntu LTS (Long Term Support) versions for stability and extended support. Currently supported LTS versions are 24.04.2, 22.04.5, and 20.04.6. However, you can use any valid Ubuntu Server version by specifying it.
+
 ## Features
 
 - **Automated ISO Creation** - Download Ubuntu Server ISOs and inject custom autoinstall configurations
@@ -52,8 +54,14 @@ ubuntu-iso --autoinstall share/ubuntu-base/autoinstall.yaml
 # Using a custom configuration
 ubuntu-iso --autoinstall my-config.yaml
 
-# Specify Ubuntu version
-ubuntu-iso --version 24.04.1 --autoinstall my-config.yaml
+# Specify Ubuntu version (LTS recommended)
+ubuntu-iso --version 22.04.5 --autoinstall my-config.yaml
+
+# Use latest 24.04 LTS
+ubuntu-iso --version 24.04.2 --autoinstall my-config.yaml
+
+# Use any Ubuntu version (including non-LTS)
+ubuntu-iso --version 23.10.1 --autoinstall my-config.yaml
 
 # Skip validation (not recommended)
 ubuntu-iso --skip-validation --autoinstall my-config.yaml

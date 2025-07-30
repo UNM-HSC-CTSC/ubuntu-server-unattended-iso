@@ -85,7 +85,9 @@
       "Bash(gh run view:*)",
       "Bash(mv:*)",
       "Bash(touch:*)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(gh run watch:*)",
+      "Bash(pip install:*)"
     ],
     "deny": []
   }

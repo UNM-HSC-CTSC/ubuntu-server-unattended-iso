@@ -67,7 +67,7 @@ install:
 	fi
 	@echo "Installing system packages..."
 	@sudo apt-get update -qq
-	@sudo apt-get install -y -qq wget curl python3 python3-yaml genisoimage || \
+	@sudo apt-get install -y -qq wget curl python3 python3-yaml python3-pip genisoimage || \
 		(echo "$(RED)Failed to install system packages$(NC)" && exit 1)
 	@echo "Installing GitHub CLI..."
 	@curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg

@@ -15,12 +15,12 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 
 # List available Ubuntu versions
 list_available_versions() {
-    info "Common Ubuntu Server versions:"
-    echo "  24.04.1 - Noble Numbat LTS (latest)"
+    info "Common Ubuntu Server LTS versions (recommended):"
+    echo "  24.04.2 - Noble Numbat LTS (latest LTS)"
     echo "  22.04.5 - Jammy Jellyfish LTS"
     echo "  20.04.6 - Focal Fossa LTS"
-    echo "  18.04.6 - Bionic Beaver LTS"
     echo ""
+    info "You can use any valid Ubuntu Server version."
     echo "For all versions, visit: https://releases.ubuntu.com"
     echo "For older versions, visit: https://old-releases.ubuntu.com"
 }

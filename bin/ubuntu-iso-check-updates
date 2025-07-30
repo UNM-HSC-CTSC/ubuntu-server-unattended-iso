@@ -13,7 +13,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CACHE_FILE="$PROJECT_DIR/.ubuntu-versions-cache"
 CACHE_DURATION=86400  # 24 hours in seconds
 RELEASES_URL="https://releases.ubuntu.com/"
-CURRENT_VERSION="${UBUNTU_VERSION:-22.04.3}"
+CURRENT_VERSION="${UBUNTU_VERSION:-22.04.5}"
 CHECK_LTS_ONLY="${CHECK_LTS_ONLY:-true}"
 NOTIFY="${NOTIFY:-true}"
 
@@ -254,7 +254,9 @@ check_updates() {
         echo
         notice "Current Version: $current"
         notice "Latest Version: $latest_version"
-        notice "Latest LTS: $latest_lts"
+        if [ -n "$latest_lts" ]; then
+            notice "Latest LTS: $latest_lts ${GREEN}(Recommended)${NC}"
+        fi
         echo
         
         if [ ${#newer_releases[@]} -eq 0 ]; then
@@ -273,11 +275,15 @@ check_updates() {
                     fi
                 fi
                 
-                echo -e "  ${CYAN}•${NC} Ubuntu $release ($release_type)"
+                if [ "$release_type" = "LTS" ]; then
+                    echo -e "  ${GREEN}•${NC} Ubuntu $release ${GREEN}(LTS - Recommended)${NC}"
+                else
+                    echo -e "  ${CYAN}•${NC} Ubuntu $release ($release_type)"
+                fi
                 
                 # Show download command
                 if [[ "$release" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                    echo "    Download: ./scripts/download-iso.sh --version $release"
+                    echo "    Use: ubuntu-iso --version $release --autoinstall <config.yaml>"
                 fi
             done
             
@@ -290,7 +296,7 @@ check_updates() {
                 echo
                 
                 notice "To download the latest ISO:"
-                echo "  ./scripts/download-iso.sh --version $latest_version"
+                echo "  ubuntu-iso --version $latest_version --autoinstall <config.yaml>"
             fi
         fi
     fi
@@ -348,7 +354,7 @@ main() {
     # Load current version from .env if not specified
     if [ -f "$PROJECT_DIR/.env" ] && [ -z "$CURRENT_VERSION" ]; then
         source "$PROJECT_DIR/.env" 2>/dev/null || true
-        CURRENT_VERSION="${UBUNTU_VERSION:-22.04.3}"
+        CURRENT_VERSION="${UBUNTU_VERSION:-22.04.5}"
     fi
     
     # Check for updates
