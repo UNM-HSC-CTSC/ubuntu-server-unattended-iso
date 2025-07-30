@@ -1,0 +1,8 @@
+# Python dependencies for Ubuntu Server Unattended ISO Builder
+# These are optional but recommended for full functionality
+
+# YAML parsing and validation
+PyYAML>=6.0.1
+
+# YAML linting for development and CI
+yamllint>=1.28.0

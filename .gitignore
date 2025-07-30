@@ -1,0 +1,52 @@
+# Ignore node/npm artifacts
+node_modules/
+npm-debug.log*
+
+# Ignore Docker artifacts
+*.tar
+*.img
+*.container
+
+# Ignore Claude config and cache (if not meant to be shared)
+claude/.claude/
+
+# Ignore ISO files
+*.iso
+downloads/
+output/
+
+# Ignore OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.tmp
+~*
+
+# Ignore build and log files
+*.log
+*.out
+*.pid
+
+# Ignore Python cache (if any)
+__pycache__/
+*.pyc
+
+# Ignore VSCode settings
+.vscode/
+
+# Ignore environment files
+.env
+.env.*
+!.env.example
+
+# Ignore subiquity clone
+.subiquity/
+
+# Ignore SSH keys
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.key
+*.pem

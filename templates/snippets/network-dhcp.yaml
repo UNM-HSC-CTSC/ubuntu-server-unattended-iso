@@ -1,0 +1,17 @@
+# Network configuration - DHCP
+# Simple DHCP configuration for primary network interface
+
+network:
+  version: 2
+  ethernets:
+    # Primary network interface
+    # Common names: eth0, ens3, ens33, enp0s3, enp0s8
+    # Adjust to match your system's interface name
+    eth0:
+      dhcp4: true
+      dhcp6: true
+      # Optional: Set metric for route priority
+      # dhcp4-overrides:
+      #   route-metric: 100
+      # Optional: Disable waiting for interface at boot
+      # optional: true

@@ -1,0 +1,198 @@
+#cloud-config
+# Monitoring Server Installation
+# Prometheus, Grafana, and comprehensive monitoring stack
+
+version: 1
+
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+
+storage:
+  layout:
+    name: lvm
+
+identity:
+  hostname: monitor-server
+  username: monitoradmin
+  realname: "Monitor Administrator"
+  password: "$6$rounds=4096$ZmNPT8Yh$9FQLmSt1WYGFhKgVqJG8ZQX7PHJKnbtJLtL7mPxLKHwZvJTGPBSZvNqXHKZBH3P1"
+
+ssh:
+  install-server: true
+  allow-pw: true
+
+packages:
+  # Monitoring stack
+  - prometheus
+  - prometheus-node-exporter
+  - prometheus-alertmanager
+  - prometheus-pushgateway
+  - grafana
+  
+  # Time series databases
+  - influxdb
+  - telegraf
+  
+  # Log management
+  - elasticsearch
+  - logstash
+  - kibana
+  - filebeat
+  - metricbeat
+  
+  # Additional exporters
+  - prometheus-blackbox-exporter
+  - prometheus-postgres-exporter
+  - prometheus-mysqld-exporter
+  - prometheus-redis-exporter
+  
+  # Utilities
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - htop
+  - vim
+  - curl
+  - jq
+
+package_update: true
+package_upgrade: true
+timezone: UTC
+
+late-commands:
+  # Configure Prometheus
+  - |
+    cat <<EOL > /target/etc/prometheus/prometheus.yml
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['localhost:9093']
+    
+    rule_files:
+      - "alerts/*.yml"
+    
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+      
+      - job_name: 'node'
+        static_configs:
+          - targets: ['localhost:9100']
+      
+      - job_name: 'grafana'
+        static_configs:
+          - targets: ['localhost:3000']
+    EOL
+  
+  # Configure Grafana
+  - |
+    cat <<EOL >> /target/etc/grafana/grafana.ini
+    [server]
+    http_port = 3000
+    domain = localhost
+    
+    [security]
+    admin_user = admin
+    admin_password = ChangeMe123!
+    
+    [auth.anonymous]
+    enabled = false
+    
+    [alerting]
+    enabled = true
+    
+    [database]
+    type = sqlite3
+    EOL
+  
+  # Configure Nginx reverse proxy
+  - |
+    cat <<EOL > /target/etc/nginx/sites-available/monitoring
+    server {
+        listen 80;
+        server_name _;
+        
+        location / {
+            proxy_pass http://localhost:3000;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+        }
+        
+        location /prometheus {
+            proxy_pass http://localhost:9090;
+            proxy_set_header Host \$host;
+        }
+        
+        location /alertmanager {
+            proxy_pass http://localhost:9093;
+            proxy_set_header Host \$host;
+        }
+    }
+    EOL
+  
+  # Enable sites
+  - curtin in-target --target=/target -- ln -s /etc/nginx/sites-available/monitoring /etc/nginx/sites-enabled/
+  - curtin in-target --target=/target -- rm -f /etc/nginx/sites-enabled/default
+  
+  # Create alerts directory
+  - curtin in-target --target=/target -- mkdir -p /etc/prometheus/alerts
+  
+  # Basic alerting rules
+  - |
+    cat <<EOL > /target/etc/prometheus/alerts/basic.yml
+    groups:
+      - name: basic
+        rules:
+          - alert: InstanceDown
+            expr: up == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Instance {{ \$labels.instance }} down"
+          
+          - alert: HighCPU
+            expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage detected"
+          
+          - alert: HighMemory
+            expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage detected"
+    EOL
+  
+  # Firewall configuration
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw allow ssh
+  - curtin in-target --target=/target -- ufw allow 80/tcp
+  - curtin in-target --target=/target -- ufw allow 443/tcp
+  - curtin in-target --target=/target -- ufw allow 3000/tcp comment 'Grafana'
+  - curtin in-target --target=/target -- ufw allow 9090/tcp comment 'Prometheus'
+  - curtin in-target --target=/target -- ufw allow 9093/tcp comment 'Alertmanager'
+  
+  # Enable services
+  - curtin in-target --target=/target -- systemctl enable prometheus
+  - curtin in-target --target=/target -- systemctl enable grafana-server
+  - curtin in-target --target=/target -- systemctl enable prometheus-node-exporter
+  - curtin in-target --target=/target -- systemctl enable nginx

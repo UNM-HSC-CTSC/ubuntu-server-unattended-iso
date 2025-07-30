@@ -1,0 +1,167 @@
+#cloud-config
+# Ubuntu Server Autoinstall Base Template
+# This is a minimal template for Ubuntu Server unattended installation
+# Customize the values below for your specific needs
+
+# Autoinstall schema version - required
+version: 1
+
+# Locale and keyboard settings
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+# Network configuration
+# This example uses DHCP on the first network interface
+network:
+  version: 2
+  ethernets:
+    # Change this to match your network interface name
+    eth0:
+      dhcp4: true
+      dhcp6: true
+
+# Storage configuration
+# Using LVM by default for flexibility
+storage:
+  layout:
+    name: lvm
+    # Uncomment to enable disk encryption
+    # password: "your-encryption-password"
+
+# User account configuration
+identity:
+  hostname: ubuntu-server
+  username: ubuntu
+  # Password is 'ubuntu' - CHANGE THIS!
+  # Generated with: echo ubuntu | openssl passwd -6 -stdin
+  password: "$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0"
+  # Alternative: specify password in plain text (not recommended)
+  # password: "ubuntu"
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: true
+  # Add your SSH public keys here for passwordless login
+  # authorized-keys:
+  #   - ssh-rsa AAAAB3Nza... user@host
+
+# Package installation
+packages:
+  # Essential packages
+  - curl
+  - wget
+  - vim
+  - htop
+  - net-tools
+  - openssh-server
+  # Add more packages as needed
+  # - nginx
+  # - docker.io
+  # - python3-pip
+
+# System updates
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+# Timezone configuration
+timezone: UTC
+
+# Enable automatic security updates
+unattended-upgrades:
+  enable: true
+
+# Post-installation commands
+# These run after the installation is complete
+late-commands:
+  # Create a welcome message
+  - echo "Ubuntu Server installation complete!" > /target/etc/motd
+  # Enable firewall with SSH allowed
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw allow ssh
+  # You can add more customization commands here
+  # - curtin in-target --target=/target -- systemctl enable docker
+  # - curtin in-target --target=/target -- usermod -aG docker ubuntu
+
+# Early commands (run before installation)
+# early-commands:
+#   - echo "Starting installation..."
+
+# Error handling
+# on-error: reboot
+
+# Reporting
+# reporting:
+#   hook:
+#     type: webhook
+#     endpoint: http://example.com/install-webhook
+
+# Proxy configuration (if needed)
+# proxy: http://proxy.example.com:8080/
+# no_proxy: localhost,127.0.0.1,.example.com
+
+# Storage configuration examples:
+# 
+# 1. Simple single disk with LVM:
+#    storage:
+#      layout:
+#        name: lvm
+#
+# 2. Direct formatting without LVM:
+#    storage:
+#      layout:
+#        name: direct
+#
+# 3. Custom partition layout:
+#    storage:
+#      config:
+#        - type: disk
+#          id: disk0
+#          ptable: gpt
+#          path: /dev/sda
+#          wipe: superblock-recursive
+#        - type: partition
+#          id: partition-0
+#          device: disk0
+#          size: 1GB
+#          flag: bios_grub
+#        - type: partition
+#          id: partition-1
+#          device: disk0
+#          size: -1
+#        - type: format
+#          id: format-0
+#          volume: partition-1
+#          fstype: ext4
+#        - type: mount
+#          id: mount-0
+#          device: format-0
+#          path: /
+
+# Network configuration examples:
+#
+# 1. Static IP configuration:
+#    network:
+#      version: 2
+#      ethernets:
+#        eth0:
+#          dhcp4: false
+#          dhcp6: false
+#          addresses:
+#            - 192.168.1.100/24
+#          gateway4: 192.168.1.1
+#          nameservers:
+#            addresses: [8.8.8.8, 8.8.4.4]
+#
+# 2. Multiple interfaces:
+#    network:
+#      version: 2
+#      ethernets:
+#        eth0:
+#          dhcp4: true
+#        eth1:
+#          dhcp4: false
+#          addresses: [10.0.0.10/24]

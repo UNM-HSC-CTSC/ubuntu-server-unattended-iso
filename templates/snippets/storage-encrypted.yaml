@@ -1,0 +1,55 @@
+# Storage configuration - Encrypted LVM
+# Full disk encryption with LVM
+
+storage:
+  layout:
+    name: lvm
+    # Encryption password - CHANGE THIS!
+    # Note: This will be visible in the autoinstall file
+    # Consider using a method to inject this securely
+    password: "change-this-encryption-password"
+  
+  # Alternative: Manual encrypted storage configuration
+  # config:
+  #   - type: disk
+  #     id: disk0
+  #     path: /dev/sda
+  #     ptable: gpt
+  #     wipe: superblock-recursive
+  #   - type: partition
+  #     id: partition-0
+  #     device: disk0
+  #     size: 1GB
+  #     flag: bios_grub
+  #   - type: partition
+  #     id: partition-1
+  #     device: disk0
+  #     size: 1GB
+  #     format: ext4
+  #     mount: /boot
+  #   - type: partition
+  #     id: partition-2
+  #     device: disk0
+  #     size: -1
+  #   - type: dm_crypt:
+  #     id: crypt0
+  #     volume: partition-2
+  #     key: "change-this-encryption-password"
+  #   - type: lvm_volgroup
+  #     id: vg0
+  #     name: ubuntu-vg
+  #     devices:
+  #       - crypt0
+  #   - type: lvm_partition
+  #     id: lv-root
+  #     name: root
+  #     volgroup: vg0
+  #     size: -1
+  #   - type: format
+  #     id: format-root
+  #     volume: lv-root
+  #     fstype: ext4
+  #   - type: mount
+  #     id: mount-root
+  #     device: format-root
+  #     path: /

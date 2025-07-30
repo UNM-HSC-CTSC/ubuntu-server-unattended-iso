@@ -1,0 +1,49 @@
+# Package selection - Database Server
+# Common packages for database server deployments
+
+packages:
+  # PostgreSQL
+  - postgresql
+  - postgresql-contrib
+  - postgresql-client
+  
+  # MySQL/MariaDB (choose one)
+  # - mysql-server
+  # - mysql-client
+  # OR
+  # - mariadb-server
+  # - mariadb-client
+  
+  # Database management tools
+  - pgadmin4
+  # - phpmyadmin  # For MySQL/MariaDB
+  
+  # Backup and replication tools
+  - postgresql-16-repmgr  # Adjust version as needed
+  - barman  # PostgreSQL backup
+  - pgbackrest
+  
+  # Performance monitoring
+  - prometheus-postgres-exporter
+  - pg-activity
+  
+  # Development tools
+  - git
+  - python3-pip
+  - python3-dev
+  - libpq-dev  # For PostgreSQL development
+  
+  # System monitoring
+  - htop
+  - iotop
+  - iftop
+  - sysstat
+  
+  # Security
+  - fail2ban
+  - ufw
+  
+  # Backup utilities
+  - rsync
+  - borgbackup
+  - rclone

@@ -1,0 +1,287 @@
+#cloud-config
+# Security Hardened Server Installation
+# CIS benchmark compliant with comprehensive security tools
+
+version: 1
+
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: false  # Disable IPv6 for security
+
+storage:
+  layout:
+    name: lvm
+    password: "DiskEncryption123!"  # CHANGE THIS!
+
+identity:
+  hostname: secure-server
+  username: secadmin
+  realname: "Security Administrator"
+  password: "$6$rounds=4096$8Ukt3sTC$oZ7mJNLpZ8QJCLrk9VKfKmW5ECRfHnwLgCZ2lRJTBx8tZ5xYyCnbtJLtL7mPxLKHwZvJTGPBSZvNqXHKZkNXm0"
+
+ssh:
+  install-server: true
+  allow-pw: false  # Key-only authentication
+
+packages:
+  # Security tools
+  - aide
+  - rkhunter
+  - chkrootkit
+  - clamav
+  - clamav-daemon
+  - lynis
+  - tiger
+  - tripwire
+  
+  # Firewall and network security
+  - ufw
+  - fail2ban
+  - iptables-persistent
+  - nftables
+  - psad
+  - fwsnort
+  
+  # AppArmor and SELinux
+  - apparmor
+  - apparmor-utils
+  - apparmor-profiles
+  - apparmor-profiles-extra
+  
+  # Auditing and compliance
+  - auditd
+  - audispd-plugins
+  - aide-common
+  - sysstat
+  
+  # Encryption tools
+  - cryptsetup
+  - gnupg
+  - openssh-server
+  
+  # Password and access control
+  - libpam-pwquality
+  - libpam-tmpdir
+  - libpam-apparmor
+  - google-authenticator
+  
+  # System hardening
+  - needrestart
+  - debsums
+  - apt-listchanges
+  - unattended-upgrades
+  
+  # Logging and monitoring
+  - rsyslog
+  - logwatch
+  - syslog-ng
+  
+  # Basic tools
+  - vim
+  - tmux
+  - curl
+  - wget
+
+package_update: true
+package_upgrade: true
+timezone: UTC
+
+unattended-upgrades:
+  enable: true
+
+late-commands:
+  # Kernel hardening
+  - |
+    cat <<EOL > /target/etc/sysctl.d/99-security-hardening.conf
+    # Kernel hardening
+    kernel.randomize_va_space = 2
+    kernel.dmesg_restrict = 1
+    kernel.kptr_restrict = 2
+    kernel.yama.ptrace_scope = 1
+    kernel.unprivileged_bpf_disabled = 1
+    net.core.bpf_jit_harden = 2
+    
+    # Network hardening
+    net.ipv4.conf.all.rp_filter = 1
+    net.ipv4.conf.default.rp_filter = 1
+    net.ipv4.conf.all.accept_redirects = 0
+    net.ipv4.conf.default.accept_redirects = 0
+    net.ipv4.conf.all.send_redirects = 0
+    net.ipv4.conf.default.send_redirects = 0
+    net.ipv4.conf.all.accept_source_route = 0
+    net.ipv4.conf.default.accept_source_route = 0
+    net.ipv4.conf.all.log_martians = 1
+    net.ipv4.conf.default.log_martians = 1
+    net.ipv4.icmp_echo_ignore_broadcasts = 1
+    net.ipv4.icmp_ignore_bogus_error_responses = 1
+    net.ipv4.tcp_syncookies = 1
+    net.ipv4.tcp_rfc1337 = 1
+    net.ipv4.tcp_timestamps = 0
+    
+    # IPv6 hardening (disabled)
+    net.ipv6.conf.all.disable_ipv6 = 1
+    net.ipv6.conf.default.disable_ipv6 = 1
+    net.ipv6.conf.lo.disable_ipv6 = 1
+    
+    # File system hardening
+    fs.protected_hardlinks = 1
+    fs.protected_symlinks = 1
+    fs.suid_dumpable = 0
+    EOL
+  
+  # SSH hardening
+  - |
+    cat <<EOL > /target/etc/ssh/sshd_config.d/99-hardening.conf
+    # SSH Hardening
+    Protocol 2
+    Port 22
+    
+    # Authentication
+    PermitRootLogin no
+    PasswordAuthentication no
+    PubkeyAuthentication yes
+    ChallengeResponseAuthentication no
+    PermitEmptyPasswords no
+    MaxAuthTries 3
+    
+    # Security
+    StrictModes yes
+    IgnoreRhosts yes
+    HostbasedAuthentication no
+    X11Forwarding no
+    PermitUserEnvironment no
+    AllowUsers secadmin
+    
+    # Crypto
+    Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+    MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
+    KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+    
+    # Logging
+    SyslogFacility AUTH
+    LogLevel VERBOSE
+    
+    # Timeouts
+    ClientAliveInterval 300
+    ClientAliveCountMax 0
+    LoginGraceTime 30
+    EOL
+  
+  # PAM configuration
+  - |
+    cat <<EOL > /target/etc/security/pwquality.conf
+    # Password quality requirements
+    minlen = 14
+    dcredit = -1
+    ucredit = -1
+    ocredit = -1
+    lcredit = -1
+    maxrepeat = 3
+    maxclassrepeat = 3
+    gecoscheck = 1
+    dictcheck = 1
+    usercheck = 1
+    enforcing = 1
+    EOL
+  
+  # Audit rules
+  - |
+    cat <<EOL > /target/etc/audit/rules.d/hardening.rules
+    # Delete all rules
+    -D
+    
+    # Buffer size
+    -b 8192
+    
+    # Failure mode
+    -f 1
+    
+    # Monitor authentication
+    -w /etc/passwd -p wa -k passwd_changes
+    -w /etc/group -p wa -k group_changes
+    -w /etc/shadow -p wa -k shadow_changes
+    -w /etc/gshadow -p wa -k gshadow_changes
+    
+    # Monitor sudo
+    -w /etc/sudoers -p wa -k sudoers_changes
+    -w /etc/sudoers.d/ -p wa -k sudoers_changes
+    
+    # Monitor SSH
+    -w /etc/ssh/sshd_config -p wa -k sshd_config
+    
+    # Monitor kernel modules
+    -w /sbin/insmod -p x -k modules
+    -w /sbin/rmmod -p x -k modules
+    -w /sbin/modprobe -p x -k modules
+    -a always,exit -F arch=b64 -S init_module -S delete_module -k modules
+    
+    # Monitor file operations
+    -a always,exit -F arch=b64 -S unlink -S unlinkat -S rename -S renameat -F auid>=1000 -F auid!=4294967295 -k delete
+    -a always,exit -F arch=b64 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=4294967295 -k access
+    -a always,exit -F arch=b64 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=4294967295 -k access
+    
+    # Make configuration immutable
+    -e 2
+    EOL
+  
+  # Configure firewall
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw default deny incoming
+  - curtin in-target --target=/target -- ufw default allow outgoing
+  - curtin in-target --target=/target -- ufw allow 22/tcp
+  - curtin in-target --target=/target -- ufw logging on
+  
+  # Configure fail2ban
+  - |
+    cat <<EOL > /target/etc/fail2ban/jail.local
+    [DEFAULT]
+    bantime = 86400
+    findtime = 600
+    maxretry = 3
+    destemail = root@localhost
+    sendername = Fail2Ban
+    action = %(action_mwl)s
+    
+    [sshd]
+    enabled = true
+    port = 22
+    filter = sshd
+    logpath = /var/log/auth.log
+    maxretry = 3
+    EOL
+  
+  # Configure AIDE
+  - curtin in-target --target=/target -- aideinit
+  - curtin in-target --target=/target -- mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  
+  # Set file permissions
+  - curtin in-target --target=/target -- chmod 644 /etc/passwd
+  - curtin in-target --target=/target -- chmod 000 /etc/shadow
+  - curtin in-target --target=/target -- chmod 000 /etc/gshadow
+  - curtin in-target --target=/target -- chmod 644 /etc/group
+  
+  # Disable unnecessary services
+  - curtin in-target --target=/target -- systemctl disable bluetooth.service || true
+  - curtin in-target --target=/target -- systemctl disable cups.service || true
+  - curtin in-target --target=/target -- systemctl disable avahi-daemon.service || true
+  
+  # Enable security services
+  - curtin in-target --target=/target -- systemctl enable auditd
+  - curtin in-target --target=/target -- systemctl enable fail2ban
+  - curtin in-target --target=/target -- systemctl enable apparmor
+  - curtin in-target --target=/target -- systemctl enable clamav-freshclam
+  
+  # Lock root account
+  - curtin in-target --target=/target -- passwd -l root
+  
+  # Set secure umask
+  - echo "umask 077" >> /target/etc/profile
+  - echo "umask 077" >> /target/etc/bash.bashrc

@@ -1,0 +1,38 @@
+# User configuration - Basic setup
+# Single user with sudo access
+
+identity:
+  # System hostname
+  hostname: ubuntu-server
+  
+  # Primary user account
+  username: ubuntu
+  realname: "Ubuntu User"
+  
+  # Password configuration
+  # Option 1: Hashed password (recommended)
+  # Generate with: echo 'your-password' | openssl passwd -6 -stdin
+  password: "$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0"
+  
+  # Option 2: Plain text password (not recommended for production)
+  # password: "ubuntu"
+
+# SSH configuration
+ssh:
+  install-server: true
+  # Allow password authentication
+  allow-pw: true
+  # SSH public keys for passwordless login
+  # authorized-keys:
+  #   - ssh-rsa AAAAB3NzaC1yc2EA... user@example.com
+  #   - ssh-ed25519 AAAAC3NzaC1... admin@workstation
+
+# Additional users can be created in late-commands
+# late-commands:
+#   - curtin in-target --target=/target -- useradd -m -s /bin/bash -G sudo developer
+#   - curtin in-target --target=/target -- echo 'developer:password' | chpasswd
+#   - curtin in-target --target=/target -- mkdir -p /home/developer/.ssh
+#   - curtin in-target --target=/target -- echo 'ssh-rsa AAAAB3...' > /home/developer/.ssh/authorized_keys
+#   - curtin in-target --target=/target -- chown -R developer:developer /home/developer/.ssh
+#   - curtin in-target --target=/target -- chmod 700 /home/developer/.ssh
+#   - curtin in-target --target=/target -- chmod 600 /home/developer/.ssh/authorized_keys

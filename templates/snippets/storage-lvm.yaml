@@ -1,0 +1,64 @@
+# Storage configuration - LVM
+# Logical Volume Manager setup for flexible disk management
+
+storage:
+  # Use LVM layout
+  layout:
+    name: lvm
+  # Optional: Specify which disk to use (default: first disk)
+  # grub:
+  #   install_devices:
+  #     - /dev/sda
+  # Optional: Custom LVM configuration
+  # config:
+  #   - type: disk
+  #     id: disk0
+  #     path: /dev/sda
+  #     ptable: gpt
+  #     wipe: superblock-recursive
+  #   - type: partition
+  #     id: partition-0
+  #     device: disk0
+  #     size: 1GB
+  #     flag: bios_grub
+  #   - type: partition
+  #     id: partition-1
+  #     device: disk0
+  #     size: 1GB
+  #     format: ext4
+  #     mount: /boot
+  #   - type: partition
+  #     id: partition-2
+  #     device: disk0
+  #     size: -1
+  #   - type: lvm_volgroup
+  #     id: vg0
+  #     name: ubuntu-vg
+  #     devices:
+  #       - partition-2
+  #   - type: lvm_partition
+  #     id: lv-root
+  #     name: root
+  #     volgroup: vg0
+  #     size: 20GB
+  #   - type: format
+  #     id: format-root
+  #     volume: lv-root
+  #     fstype: ext4
+  #   - type: mount
+  #     id: mount-root
+  #     device: format-root
+  #     path: /
+  #   - type: lvm_partition
+  #     id: lv-swap
+  #     name: swap
+  #     volgroup: vg0
+  #     size: 4GB
+  #   - type: format
+  #     id: format-swap
+  #     volume: lv-swap
+  #     fstype: swap
+  #   - type: mount
+  #     id: mount-swap
+  #     device: format-swap
+  #     path: none

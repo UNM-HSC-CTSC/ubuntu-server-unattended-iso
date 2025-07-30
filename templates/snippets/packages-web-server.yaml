@@ -1,0 +1,53 @@
+# Package selection - Web Server
+# Common packages for web server deployments
+
+packages:
+  # Web servers
+  - nginx
+  - apache2
+  
+  # PHP and extensions
+  - php
+  - php-fpm
+  - php-mysql
+  - php-curl
+  - php-gd
+  - php-mbstring
+  - php-xml
+  - php-zip
+  - php-json
+  
+  # Database clients
+  - mysql-client
+  - postgresql-client
+  
+  # SSL/TLS certificates
+  - certbot
+  - python3-certbot-nginx
+  - python3-certbot-apache
+  
+  # Performance and caching
+  - memcached
+  - redis-server
+  - php-memcached
+  - php-redis
+  
+  # Development tools
+  - git
+  - composer
+  - nodejs
+  - npm
+  
+  # Monitoring and utilities
+  - htop
+  - iotop
+  - nethogs
+  - vnstat
+  
+  # Security
+  - fail2ban
+  - ufw
+  
+  # Backup tools
+  - rsync
+  - duplicity

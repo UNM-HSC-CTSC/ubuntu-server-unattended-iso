@@ -1,0 +1,141 @@
+#cloud-config
+# Container Host Installation
+# Docker and Kubernetes-ready host with container management tools
+
+version: 1
+
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+
+storage:
+  layout:
+    name: lvm
+
+identity:
+  hostname: container-host
+  username: containeradmin
+  realname: "Container Administrator"
+  password: "$6$rounds=4096$AsK9hfX7$kDTmF8tN0M5vj3bX2h9v7PQWqQdxPzFf4vUBkHLCgKvr2zrrFWGpgQvcxmZ9Qx7.Yk4iHj8YKMNhpCn3GD9Zh0"
+
+ssh:
+  install-server: true
+  allow-pw: true
+
+packages:
+  # Container runtimes
+  - docker.io
+  - containerd
+  - runc
+  
+  # Kubernetes components
+  - kubeadm
+  - kubelet
+  - kubectl
+  
+  # Container tools
+  - docker-compose
+  - podman
+  - buildah
+  - skopeo
+  
+  # Registry
+  - docker-registry
+  
+  # Monitoring
+  - prometheus-node-exporter
+  - cadvisor
+  
+  # Networking
+  - bridge-utils
+  - net-tools
+  
+  # Storage
+  - lvm2
+  - nfs-common
+  - ceph-common
+  
+  # Development
+  - git
+  - make
+  - build-essential
+  
+  # Utilities
+  - htop
+  - iotop
+  - tmux
+  - vim
+  - curl
+  - wget
+  - jq
+
+package_update: true
+package_upgrade: true
+timezone: UTC
+
+late-commands:
+  # Configure Docker
+  - curtin in-target --target=/target -- usermod -aG docker containeradmin
+  - |
+    cat <<EOL > /target/etc/docker/daemon.json
+    {
+      "exec-opts": ["native.cgroupdriver=systemd"],
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "100m",
+        "max-file": "5"
+      },
+      "storage-driver": "overlay2",
+      "storage-opts": [
+        "overlay2.override_kernel_check=true"
+      ],
+      "metrics-addr": "0.0.0.0:9323",
+      "experimental": true
+    }
+    EOL
+  
+  # Configure kernel parameters for containers
+  - |
+    cat <<EOL >> /target/etc/sysctl.d/99-kubernetes.conf
+    net.bridge.bridge-nf-call-iptables = 1
+    net.bridge.bridge-nf-call-ip6tables = 1
+    net.ipv4.ip_forward = 1
+    vm.max_map_count = 262144
+    fs.inotify.max_user_instances = 8192
+    fs.inotify.max_user_watches = 524288
+    EOL
+  
+  # Configure kernel modules
+  - |
+    cat <<EOL > /target/etc/modules-load.d/containerd.conf
+    overlay
+    br_netfilter
+    EOL
+  
+  # Firewall configuration
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw allow ssh
+  - curtin in-target --target=/target -- ufw allow 2376/tcp comment 'Docker TLS'
+  - curtin in-target --target=/target -- ufw allow 2377/tcp comment 'Docker Swarm'
+  - curtin in-target --target=/target -- ufw allow 7946/tcp comment 'Container network discovery'
+  - curtin in-target --target=/target -- ufw allow 7946/udp
+  - curtin in-target --target=/target -- ufw allow 4789/udp comment 'Container overlay network'
+  - curtin in-target --target=/target -- ufw allow 6443/tcp comment 'Kubernetes API'
+  - curtin in-target --target=/target -- ufw allow 10250/tcp comment 'Kubelet API'
+  - curtin in-target --target=/target -- ufw allow 10251/tcp comment 'kube-scheduler'
+  - curtin in-target --target=/target -- ufw allow 10252/tcp comment 'kube-controller'
+  
+  # Create docker compose directory
+  - curtin in-target --target=/target -- mkdir -p /opt/containers
+  
+  # Enable services
+  - curtin in-target --target=/target -- systemctl enable docker
+  - curtin in-target --target=/target -- systemctl enable containerd

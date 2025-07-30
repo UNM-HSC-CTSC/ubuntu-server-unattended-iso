@@ -1,0 +1,51 @@
+#cloud-config
+# Minimal Ubuntu Server installation profile
+# This creates a basic Ubuntu Server with minimal packages
+
+version: 1
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+# Network configuration - DHCP
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+
+# Storage configuration - LVM without encryption
+storage:
+  layout:
+    name: lvm
+
+# User configuration
+identity:
+  hostname: ubuntu-server
+  username: ubuntu
+  realname: "Ubuntu User"
+  password: "$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0"  # ubuntu
+
+ssh:
+  install-server: true
+  allow-pw: true
+
+# Minimal package set
+packages:
+  - curl
+  - wget
+  - vim
+  - htop
+  - net-tools
+  - openssh-server
+
+# System configuration
+package_update: true
+package_upgrade: true
+timezone: UTC
+
+# Post-installation
+late-commands:
+  - echo "Minimal Ubuntu Server installation complete" > /target/etc/motd

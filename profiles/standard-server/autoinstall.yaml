@@ -1,0 +1,185 @@
+#cloud-config
+# Standard Ubuntu Server Installation
+# Balanced configuration with common server tools and security
+
+version: 1
+
+# Locale and keyboard
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+# Network - DHCP with fallback
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+      optional: true
+
+# Storage - LVM with separate /var
+storage:
+  layout:
+    name: lvm
+
+# Identity configuration
+identity:
+  hostname: ubuntu-server
+  username: sysadmin
+  realname: "System Administrator"
+  # Password is 'ChangeMeNow!' - MUST BE CHANGED!
+  password: "$6$rounds=4096$8AHKRh3k3RXRD8YP$ItbGxVWJa5P1n8lLYe4fVMXOuyYiAzeFVPuXpHwXQnwz9IZwFWZGNvJbX3PRg7gqYVxdLR4qKlLSZxeVR7/Yy."
+
+# SSH configuration - secure by default
+ssh:
+  install-server: true
+  allow-pw: false
+  authorized-keys:
+    - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... admin@example.com"
+
+# Standard package selection
+packages:
+  # System utilities
+  - htop
+  - iotop
+  - iftop
+  - ncdu
+  - tmux
+  - screen
+  - vim
+  - emacs-nox
+  
+  # Network tools
+  - net-tools
+  - iputils-ping
+  - traceroute
+  - nmap
+  - tcpdump
+  - dnsutils
+  - whois
+  - mtr-tiny
+  
+  # Development tools
+  - git
+  - build-essential
+  - python3-pip
+  - python3-venv
+  
+  # System monitoring
+  - sysstat
+  - lm-sensors
+  - smartmontools
+  
+  # File management
+  - rsync
+  - zip
+  - unzip
+  - p7zip-full
+  - tree
+  
+  # Security tools
+  - fail2ban
+  - ufw
+  - aide
+  - apparmor-utils
+  
+  # Time sync
+  - chrony
+  
+  # Log management
+  - logrotate
+  - logwatch
+
+# Enable automatic security updates
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+# Timezone configuration
+timezone: America/New_York
+
+# Enable unattended upgrades
+unattended-upgrades:
+  enable: true
+
+# Post-installation configuration
+late-commands:
+  # Configure firewall
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw default deny incoming
+  - curtin in-target --target=/target -- ufw default allow outgoing
+  - curtin in-target --target=/target -- ufw allow ssh
+  
+  # Configure fail2ban
+  - curtin in-target --target=/target -- systemctl enable fail2ban
+  - |
+    cat <<EOF > /target/etc/fail2ban/jail.local
+    [DEFAULT]
+    bantime = 3600
+    findtime = 600
+    maxretry = 5
+    
+    [sshd]
+    enabled = true
+    port = ssh
+    logpath = %(sshd_log)s
+    backend = systemd
+    EOF
+  
+  # System hardening
+  - curtin in-target --target=/target -- sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - curtin in-target --target=/target -- sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - curtin in-target --target=/target -- passwd -l root
+  
+  # Configure sysctl for security
+  - |
+    cat <<EOF >> /target/etc/sysctl.d/99-security.conf
+    # IP Spoofing protection
+    net.ipv4.conf.all.rp_filter = 1
+    net.ipv4.conf.default.rp_filter = 1
+    
+    # Ignore ICMP redirects
+    net.ipv4.conf.all.accept_redirects = 0
+    net.ipv6.conf.all.accept_redirects = 0
+    
+    # Ignore send redirects
+    net.ipv4.conf.all.send_redirects = 0
+    
+    # Disable source packet routing
+    net.ipv4.conf.all.accept_source_route = 0
+    net.ipv6.conf.all.accept_source_route = 0
+    
+    # Log Martians
+    net.ipv4.conf.all.log_martians = 1
+    
+    # Enable TCP/IP SYN cookies
+    net.ipv4.tcp_syncookies = 1
+    EOF
+  
+  # Configure automatic updates
+  - |
+    cat <<EOF > /target/etc/apt/apt.conf.d/50unattended-upgrades
+    Unattended-Upgrade::Allowed-Origins {
+        "\${distro_id}:\${distro_codename}-security";
+        "\${distro_id}ESMApps:\${distro_codename}-apps-security";
+        "\${distro_id}ESM:\${distro_codename}-infra-security";
+    };
+    Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+    Unattended-Upgrade::MinimalSteps "true";
+    Unattended-Upgrade::Remove-Unused-Dependencies "true";
+    Unattended-Upgrade::Automatic-Reboot "false";
+    Unattended-Upgrade::Automatic-Reboot-Time "02:00";
+    EOF
+  
+  # Create admin script directory
+  - curtin in-target --target=/target -- mkdir -p /usr/local/sbin
+  
+  # Welcome message
+  - echo "Standard Ubuntu Server - Remember to add your SSH key!" > /target/etc/motd
+
+# Report installation telemetry
+reporting:
+  builtin:
+    type: print

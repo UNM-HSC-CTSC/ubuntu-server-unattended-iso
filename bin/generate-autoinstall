@@ -1,0 +1,490 @@
+#!/bin/bash
+
+# Ubuntu Autoinstall Configuration Generator
+# Interactive wizard for creating autoinstall.yaml files
+
+set -euo pipefail
+
+# Script directory - handle both old and new locations
+if [ -L "${BASH_SOURCE[0]}" ]; then
+    # If called via symlink, get the real script location
+    REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+    SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)"
+else
+    # If called directly from bin/, go up one level
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Configuration variables
+PROFILE_NAME=""
+PROFILE_DESC=""
+HOSTNAME=""
+USERNAME=""
+FULLNAME=""
+PASSWORD=""
+SSH_KEY=""
+USE_DHCP="y"
+STATIC_IP=""
+GATEWAY=""
+DNS_SERVERS=""
+USE_LVM="y"
+USE_ENCRYPTION="n"
+TIMEZONE="UTC"
+LOCALE="en_US.UTF-8"
+PACKAGES=""
+ENABLE_UPDATES="y"
+SERVER_ROLE="minimal"
+
+# Helper functions
+error() {
+    echo -e "${RED}Error:${NC} $1" >&2
+    exit 1
+}
+
+info() {
+    echo -e "${YELLOW}→${NC} $1"
+}
+
+success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+prompt() {
+    echo -e "${BLUE}?${NC} $1"
+}
+
+header() {
+    echo
+    echo -e "${GREEN}=== $1 ===${NC}"
+    echo
+}
+
+# Read user input with default value
+read_input() {
+    local prompt_text="$1"
+    local default_value="${2:-}"
+    local input=""
+    
+    if [ -n "$default_value" ]; then
+        read -r -p "$(prompt "$prompt_text [$default_value]: ")" input
+        echo "${input:-$default_value}"
+    else
+        read -r -p "$(prompt "$prompt_text: ")" input
+        echo "$input"
+    fi
+}
+
+# Read yes/no input
+read_yn() {
+    local prompt_text="$1"
+    local default="${2:-y}"
+    local input=""
+    
+    while true; do
+        read -r -p "$(prompt "$prompt_text (y/n) [$default]: ")" input
+        input="${input:-$default}"
+        case "$input" in
+            [yY]|[yY][eE][sS]) echo "y"; break ;;
+            [nN]|[nN][oO]) echo "n"; break ;;
+            *) info "Please answer y or n" ;;
+        esac
+    done
+}
+
+# Read password with confirmation
+read_password() {
+    local password1=""
+    local password2=""
+    
+    while true; do
+        read -r -s -p "$(prompt "Password: ")" password1
+        echo
+        read -r -s -p "$(prompt "Confirm password: ")" password2
+        echo
+        
+        if [ "$password1" = "$password2" ]; then
+            echo "$password1"
+            break
+        else
+            info "Passwords don't match. Try again."
+        fi
+    done
+}
+
+# Generate password hash
+hash_password() {
+    local password="$1"
+    echo "$password" | openssl passwd -6 -stdin
+}
+
+# Profile configuration
+configure_profile() {
+    header "Profile Configuration"
+    
+    while true; do
+        PROFILE_NAME=$(read_input "Profile name (e.g., web-server)")
+        # Validate profile name (alphanumeric and hyphens only)
+        if [[ "$PROFILE_NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            break
+        else
+            info "Profile name can only contain letters, numbers, and hyphens"
+        fi
+    done
+    
+    PROFILE_DESC=$(read_input "Profile description" "Ubuntu Server installation")
+    HOSTNAME=$(read_input "Default hostname" "$PROFILE_NAME")
+}
+
+# User configuration
+configure_user() {
+    header "User Setup"
+    
+    USERNAME=$(read_input "Username" "ubuntu")
+    FULLNAME=$(read_input "Full name" "Ubuntu User")
+    
+    local auth_method=$(read_input "Authentication method (password/ssh/both)" "ssh")
+    
+    case "$auth_method" in
+        password)
+            PASSWORD=$(read_password)
+            ;;
+        ssh)
+            while true; do
+                local ssh_input=$(read_input "SSH public key (paste here or file path)")
+                if [ -f "$ssh_input" ]; then
+                    SSH_KEY=$(cat "$ssh_input")
+                    break
+                elif [[ "$ssh_input" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
+                    SSH_KEY="$ssh_input"
+                    break
+                else
+                    info "Invalid SSH key. Paste the public key or provide a file path"
+                fi
+            done
+            ;;
+        both)
+            PASSWORD=$(read_password)
+            SSH_KEY=$(read_input "SSH public key")
+            ;;
+    esac
+}
+
+# Network configuration
+configure_network() {
+    header "Network Configuration"
+    
+    USE_DHCP=$(read_yn "Use DHCP for network configuration?" "y")
+    
+    if [ "$USE_DHCP" = "n" ]; then
+        STATIC_IP=$(read_input "Static IP address (e.g., 192.168.1.100/24)")
+        GATEWAY=$(read_input "Gateway IP address (e.g., 192.168.1.1)")
+        DNS_SERVERS=$(read_input "DNS servers (comma-separated)" "8.8.8.8,8.8.4.4")
+    fi
+}
+
+# Storage configuration
+configure_storage() {
+    header "Storage Configuration"
+    
+    USE_LVM=$(read_yn "Use LVM (Logical Volume Manager)?" "y")
+    
+    if [ "$USE_LVM" = "y" ]; then
+        USE_ENCRYPTION=$(read_yn "Enable disk encryption?" "n")
+    fi
+    
+    info "Note: Using default partition layout. Custom partitioning can be added to the generated file."
+}
+
+# Package selection
+configure_packages() {
+    header "Package Selection"
+    
+    echo "Select server role:"
+    echo "  1) Minimal installation"
+    echo "  2) Web Server (Apache, PHP, MySQL)"
+    echo "  3) Database Server (PostgreSQL)"
+    echo "  4) Container Host (Docker, docker-compose)"
+    echo "  5) Kubernetes Node"
+    echo "  6) Development Server"
+    echo "  7) Custom"
+    
+    local role_choice=$(read_input "Selection" "1")
+    
+    case "$role_choice" in
+        1)
+            SERVER_ROLE="minimal"
+            PACKAGES="curl,wget,vim,htop,net-tools"
+            ;;
+        2)
+            SERVER_ROLE="web-server"
+            PACKAGES="apache2,php,php-mysql,mysql-server,certbot,python3-certbot-apache"
+            ;;
+        3)
+            SERVER_ROLE="database"
+            PACKAGES="postgresql,postgresql-contrib"
+            ;;
+        4)
+            SERVER_ROLE="container"
+            PACKAGES="docker.io,docker-compose,containerd"
+            ;;
+        5)
+            SERVER_ROLE="kubernetes"
+            PACKAGES="kubelet,kubeadm,kubectl,containerd"
+            ;;
+        6)
+            SERVER_ROLE="development"
+            PACKAGES="build-essential,git,python3-pip,nodejs,npm"
+            ;;
+        7)
+            SERVER_ROLE="custom"
+            PACKAGES=$(read_input "Enter packages (comma-separated)")
+            ;;
+    esac
+    
+    # Additional packages
+    local extra=$(read_input "Additional packages (comma-separated, or press Enter to skip)" "")
+    if [ -n "$extra" ]; then
+        PACKAGES="${PACKAGES},${extra}"
+    fi
+}
+
+# System configuration
+configure_system() {
+    header "System Configuration"
+    
+    TIMEZONE=$(read_input "Timezone" "UTC")
+    LOCALE=$(read_input "Locale" "en_US.UTF-8")
+    ENABLE_UPDATES=$(read_yn "Enable automatic security updates?" "y")
+}
+
+# Generate autoinstall.yaml
+generate_autoinstall() {
+    local profile_dir="${SCRIPT_DIR}/profiles/${PROFILE_NAME}"
+    local yaml_file="${profile_dir}/autoinstall.yaml"
+    
+    info "Creating profile directory: $profile_dir"
+    mkdir -p "$profile_dir"
+    
+    info "Generating autoinstall.yaml..."
+    
+    cat > "$yaml_file" << EOF
+#cloud-config
+# Generated by generate-autoinstall.sh
+# Profile: ${PROFILE_NAME}
+# Description: ${PROFILE_DESC}
+
+version: 1
+locale: ${LOCALE}
+keyboard:
+  layout: us
+  variant: ""
+
+# Network configuration
+network:
+  version: 2
+  ethernets:
+    eth0:
+EOF
+
+    if [ "$USE_DHCP" = "y" ]; then
+        cat >> "$yaml_file" << EOF
+      dhcp4: true
+      dhcp6: true
+EOF
+    else
+        cat >> "$yaml_file" << EOF
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - ${STATIC_IP}
+      gateway4: ${GATEWAY}
+      nameservers:
+        addresses: [$(echo "$DNS_SERVERS" | sed 's/,/, /g')]
+EOF
+    fi
+
+    cat >> "$yaml_file" << EOF
+
+# Storage configuration
+storage:
+  layout:
+    name: lvm
+EOF
+
+    if [ "$USE_ENCRYPTION" = "y" ]; then
+        cat >> "$yaml_file" << EOF
+    password: "changeme"  # Change this encryption password!
+EOF
+    fi
+
+    # User configuration
+    cat >> "$yaml_file" << EOF
+
+# User configuration
+identity:
+  hostname: ${HOSTNAME}
+  username: ${USERNAME}
+  realname: "${FULLNAME}"
+EOF
+
+    if [ -n "$PASSWORD" ]; then
+        local hashed_pw=$(hash_password "$PASSWORD")
+        cat >> "$yaml_file" << EOF
+  password: "${hashed_pw}"
+EOF
+    fi
+
+    # SSH configuration
+    cat >> "$yaml_file" << EOF
+
+ssh:
+  install-server: true
+  allow-pw: $([ -n "$PASSWORD" ] && echo "true" || echo "false")
+EOF
+
+    if [ -n "$SSH_KEY" ]; then
+        cat >> "$yaml_file" << EOF
+  authorized-keys:
+    - "${SSH_KEY}"
+EOF
+    fi
+
+    # Package configuration
+    cat >> "$yaml_file" << EOF
+
+# Package installation
+packages:
+EOF
+
+    IFS=',' read -ra PKG_ARRAY <<< "$PACKAGES"
+    for pkg in "${PKG_ARRAY[@]}"; do
+        echo "  - $pkg" >> "$yaml_file"
+    done
+
+    # Updates configuration
+    if [ "$ENABLE_UPDATES" = "y" ]; then
+        cat >> "$yaml_file" << EOF
+
+# Automatic updates
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+unattended-upgrades:
+  enable: true
+EOF
+    fi
+
+    # System configuration
+    cat >> "$yaml_file" << EOF
+
+# System configuration
+timezone: ${TIMEZONE}
+
+# Post-installation commands
+late-commands:
+  - echo "${PROFILE_NAME} installation complete" > /target/etc/motd
+EOF
+
+    success "Generated autoinstall.yaml"
+}
+
+# Generate README for profile
+generate_readme() {
+    local profile_dir="${SCRIPT_DIR}/profiles/${PROFILE_NAME}"
+    local readme_file="${profile_dir}/README.md"
+    
+    info "Generating README.md..."
+    
+    cat > "$readme_file" << EOF
+# ${PROFILE_NAME} Profile
+
+${PROFILE_DESC}
+
+## Configuration Summary
+
+- **Hostname**: ${HOSTNAME}
+- **Username**: ${USERNAME}
+- **Network**: $([ "$USE_DHCP" = "y" ] && echo "DHCP" || echo "Static IP: ${STATIC_IP}")
+- **Storage**: $([ "$USE_LVM" = "y" ] && echo "LVM" || echo "Standard")$([ "$USE_ENCRYPTION" = "y" ] && echo " with encryption" || echo "")
+- **Server Role**: ${SERVER_ROLE}
+- **Timezone**: ${TIMEZONE}
+- **Locale**: ${LOCALE}
+- **Auto Updates**: $([ "$ENABLE_UPDATES" = "y" ] && echo "Enabled" || echo "Disabled")
+
+## Installed Packages
+
+$(echo "$PACKAGES" | tr ',' '\n' | sed 's/^/- /')
+
+## Building ISO
+
+To build an ISO with this profile:
+
+\`\`\`bash
+./build-iso.sh --profile ${PROFILE_NAME}
+\`\`\`
+
+## Post-Installation
+
+After installation, the system will be ready with:
+- SSH server enabled$([ -n "$SSH_KEY" ] && echo " with key authentication" || echo "")
+- All specified packages installed
+- Network configured as specified
+$([ "$ENABLE_UPDATES" = "y" ] && echo "- Automatic security updates enabled" || echo "")
+
+## Customization
+
+To customize this profile, edit the \`autoinstall.yaml\` file in this directory.
+EOF
+
+    success "Generated README.md"
+}
+
+# Main function
+main() {
+    echo
+    echo -e "${GREEN}Ubuntu Autoinstall Configuration Generator${NC}"
+    echo -e "${GREEN}=========================================${NC}"
+    echo
+    info "This wizard will help you create a custom autoinstall.yaml configuration."
+    echo
+    
+    # Run configuration steps
+    configure_profile
+    configure_user
+    configure_network
+    configure_storage
+    configure_packages
+    configure_system
+    
+    # Generate files
+    header "Generating Configuration"
+    generate_autoinstall
+    generate_readme
+    
+    # Summary
+    header "Profile Created Successfully!"
+    
+    success "Profile name: ${PROFILE_NAME}"
+    success "Location: profiles/${PROFILE_NAME}/"
+    echo
+    info "Files created:"
+    echo "  - profiles/${PROFILE_NAME}/autoinstall.yaml"
+    echo "  - profiles/${PROFILE_NAME}/README.md"
+    echo
+    info "To build an ISO with this profile:"
+    echo -e "  ${GREEN}./build-iso.sh --profile ${PROFILE_NAME}${NC}"
+    echo
+}
+
+# Run main if not sourced
+if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
+    main "$@"
+fi

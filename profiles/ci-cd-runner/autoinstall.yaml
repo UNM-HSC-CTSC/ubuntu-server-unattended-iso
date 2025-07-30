@@ -1,0 +1,147 @@
+#cloud-config
+# CI/CD Runner Installation
+# GitLab Runner, Jenkins agent, and GitHub Actions runner ready
+
+version: 1
+
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+
+storage:
+  layout:
+    name: lvm
+
+identity:
+  hostname: ci-runner
+  username: runner
+  realname: "CI/CD Runner"
+  password: "$6$rounds=4096$RnQ5KhAB$JXKhLcVJQBH4tPJYGPFc4KQur8bGKYGVLHGRhBVPZ8tZ5xYyCnbtJLtL7mPxLKHwZvJTGPBSZvNqXHKZkLuTC1"
+
+ssh:
+  install-server: true
+  allow-pw: true
+
+packages:
+  # Version control
+  - git
+  - git-lfs
+  - subversion
+  - mercurial
+  
+  # Build tools
+  - build-essential
+  - cmake
+  - make
+  - gcc
+  - g++
+  
+  # Languages and runtimes
+  - python3
+  - python3-pip
+  - python3-venv
+  - nodejs
+  - npm
+  - golang
+  - rustc
+  - cargo
+  - openjdk-11-jdk
+  - openjdk-17-jdk
+  
+  # Container tools
+  - docker.io
+  - docker-compose
+  - podman
+  
+  # CI/CD tools
+  - curl
+  - wget
+  - jq
+  - zip
+  - unzip
+  
+  # Testing tools
+  - chromium-browser
+  - firefox
+  - xvfb
+  
+  # Database clients
+  - postgresql-client
+  - mysql-client
+  - redis-tools
+  
+  # Monitoring
+  - htop
+  - iotop
+
+package_update: true
+package_upgrade: true
+timezone: UTC
+
+late-commands:
+  # Add runner to docker group
+  - curtin in-target --target=/target -- usermod -aG docker runner
+  
+  # Create runners directory
+  - curtin in-target --target=/target -- mkdir -p /opt/runners
+  - curtin in-target --target=/target -- chown runner:runner /opt/runners
+  
+  # Download GitLab Runner
+  - |
+    curl -L --output /target/usr/local/bin/gitlab-runner \
+      "https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-linux-amd64"
+  - curtin in-target --target=/target -- chmod +x /usr/local/bin/gitlab-runner
+  - curtin in-target --target=/target -- gitlab-runner install --user=runner --working-directory=/opt/runners
+  
+  # Prepare for GitHub Actions runner
+  - curtin in-target --target=/target -- mkdir -p /opt/actions-runner
+  - curtin in-target --target=/target -- chown runner:runner /opt/actions-runner
+  
+  # Configure Docker for runners
+  - |
+    cat <<EOL > /target/etc/docker/daemon.json
+    {
+      "exec-opts": ["native.cgroupdriver=systemd"],
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+      },
+      "storage-driver": "overlay2"
+    }
+    EOL
+  
+  # Increase file watchers for builds
+  - echo "fs.inotify.max_user_watches=524288" >> /target/etc/sysctl.d/99-runners.conf
+  
+  # Create runner registration script
+  - |
+    cat <<'SCRIPT' > /target/opt/runners/register-gitlab-runner.sh
+    #!/bin/bash
+    echo "Register GitLab Runner"
+    echo "Usage: $0 <gitlab-url> <registration-token>"
+    gitlab-runner register \
+      --non-interactive \
+      --url "$1" \
+      --registration-token "$2" \
+      --executor "docker" \
+      --docker-image alpine:latest \
+      --description "docker-runner" \
+      --tag-list "docker,aws" \
+      --run-untagged="true" \
+      --locked="false" \
+      --access-level="not_protected"
+    SCRIPT
+  - curtin in-target --target=/target -- chmod +x /opt/runners/register-gitlab-runner.sh
+  
+  # Enable services
+  - curtin in-target --target=/target -- systemctl enable docker
+  - curtin in-target --target=/target -- systemctl enable gitlab-runner

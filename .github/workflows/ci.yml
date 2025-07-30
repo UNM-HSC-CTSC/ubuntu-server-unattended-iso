@@ -1,0 +1,170 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  release:
+    types: [ created ]
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  UBUNTU_VERSION: "22.04.3"
+  UBUNTU_MIRROR: "https://releases.ubuntu.com"
+
+jobs:
+  test:
+    name: Test and Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wget curl python3 make
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Make scripts executable
+        run: |
+          chmod +x test.sh scripts/*.sh bin/* || true
+
+      - name: Run tests
+        run: |
+          if [ -f Makefile ]; then make test; else ./test.sh; fi
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan autoinstall.yaml files
+        run: |
+          echo "Scanning autoinstall.yaml files for security issues..."
+          for yaml in profiles/*/autoinstall.yaml; do
+            echo "Checking $yaml"
+            if grep -E "password:.*[^$]" "$yaml" | grep -v "^#"; then
+              echo "WARNING: Possible plaintext password in $yaml"
+            fi
+          done
+
+  build:
+    name: Build ISOs
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      matrix:
+        profile: [minimal-server, standard-server, web-server, database-server, container-host]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wget curl python3 make genisoimage
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-iso.sh build-all.sh scripts/*.sh bin/* || true
+
+      - name: Create output directory
+        run: mkdir -p output
+
+      - name: Build ISO for ${{ matrix.profile }}
+        run: |
+          if [ -f Makefile ]; then 
+            make build PROFILE=${{ matrix.profile }}
+          else 
+            ./build-iso.sh --profile ${{ matrix.profile }}
+          fi
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.profile }}-ubuntu-${{ env.UBUNTU_VERSION }}
+          path: output/*.iso
+          retention-days: 7
+
+  build-all:
+    name: Build All ISOs
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wget curl python3 make genisoimage
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-iso.sh build-all.sh scripts/*.sh bin/* || true
+
+      - name: Create output directory
+        run: mkdir -p output
+
+      - name: Build all ISOs
+        run: |
+          if [ -f Makefile ]; then 
+            make build-all
+          else 
+            ./build-all.sh
+          fi
+
+      - name: List built ISOs
+        run: ls -la output/
+
+      - name: Upload all ISOs
+        uses: actions/upload-artifact@v3
+        with:
+          name: all-ubuntu-isos-${{ github.sha }}
+          path: output/*.iso
+          retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-all]
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << EOF
+          ## Ubuntu Server Unattended ISO Release
+          
+          This release includes unattended installation ISOs for Ubuntu Server ${UBUNTU_VERSION}.
+          
+          ### Available ISOs:
+          EOF
+          find artifacts -name "*.iso" -exec basename {} \; | while read iso; do
+            echo "- $iso" >> release_notes.md
+          done
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*/*.iso
+          body_path: release_notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,361 @@
+#!/bin/bash
+
+# Ubuntu Version Update Checker
+# Checks for new Ubuntu Server releases and notifies about updates
+
+set -euo pipefail
+
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Configuration
+CACHE_FILE="$PROJECT_DIR/.ubuntu-versions-cache"
+CACHE_DURATION=86400  # 24 hours in seconds
+RELEASES_URL="https://releases.ubuntu.com/"
+CURRENT_VERSION="${UBUNTU_VERSION:-22.04.3}"
+CHECK_LTS_ONLY="${CHECK_LTS_ONLY:-true}"
+NOTIFY="${NOTIFY:-true}"
+
+# Colors
+if [ -n "${NO_COLOR:-}" ] || [ ! -t 1 ]; then
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    CYAN=''
+    NC=''
+else
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    NC='\033[0m'
+fi
+
+# Helper functions
+error() {
+    echo -e "${RED}Error:${NC} $1" >&2
+    exit 1
+}
+
+success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+info() {
+    echo -e "${YELLOW}→${NC} $1"
+}
+
+notice() {
+    echo -e "${CYAN}ℹ${NC} $1"
+}
+
+usage() {
+    cat << EOF
+Usage: $0 [options]
+
+Checks for Ubuntu Server version updates.
+
+Options:
+    --current VERSION    Current Ubuntu version (default: from .env or 22.04.3)
+    --all               Check all releases, not just LTS
+    --no-cache          Force fresh check
+    --quiet             Suppress notifications
+    --json              Output in JSON format
+    --help              Show this help
+
+Examples:
+    $0                          # Check for updates
+    $0 --current 20.04.6       # Check updates from specific version
+    $0 --all                   # Include non-LTS releases
+    $0 --json                  # Machine-readable output
+
+EOF
+    exit 0
+}
+
+# Check if cache is valid
+is_cache_valid() {
+    if [ ! -f "$CACHE_FILE" ]; then
+        return 1
+    fi
+    
+    local cache_age=$(( $(date +%s) - $(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))
+    
+    if [ $cache_age -lt $CACHE_DURATION ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Fetch Ubuntu releases
+fetch_releases() {
+    info "Fetching Ubuntu release information..."
+    
+    # Create temporary file
+    local temp_file=$(mktemp)
+    
+    # Download releases page
+    if ! curl -s "$RELEASES_URL" > "$temp_file"; then
+        rm -f "$temp_file"
+        error "Failed to fetch Ubuntu releases"
+    fi
+    
+    # Parse releases
+    local releases=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ href=\"([0-9]+\.[0-9]+(\.[0-9]+)?)/\" ]]; then
+            local version="${BASH_REMATCH[1]}"
+            
+            # Filter LTS only if requested
+            if [ "$CHECK_LTS_ONLY" = "true" ]; then
+                # LTS versions: 20.04, 22.04, 24.04, etc.
+                if [[ "$version" =~ ^[0-9]+\.04(\.[0-9]+)?$ ]]; then
+                    # Check if it's an even year (LTS pattern)
+                    local year=$(echo "$version" | cut -d. -f1)
+                    if [ $((year % 2)) -eq 0 ]; then
+                        releases+=("$version")
+                    fi
+                fi
+            else
+                releases+=("$version")
+            fi
+        fi
+    done < "$temp_file"
+    
+    # Sort releases
+    IFS=$'\n' sorted_releases=($(printf '%s\n' "${releases[@]}" | sort -V))
+    
+    # Save to cache
+    printf '%s\n' "${sorted_releases[@]}" > "$CACHE_FILE"
+    
+    rm -f "$temp_file"
+    success "Found ${#sorted_releases[@]} releases"
+}
+
+# Compare versions
+version_compare() {
+    # Returns: 0 if v1 = v2, 1 if v1 > v2, 2 if v1 < v2
+    local v1="$1"
+    local v2="$2"
+    
+    if [ "$v1" = "$v2" ]; then
+        return 0
+    fi
+    
+    # Use sort -V to compare
+    local sorted=$(printf '%s\n%s' "$v1" "$v2" | sort -V | head -1)
+    
+    if [ "$sorted" = "$v1" ]; then
+        return 2  # v1 < v2
+    else
+        return 1  # v1 > v2
+    fi
+}
+
+# Get release details
+get_release_details() {
+    local version="$1"
+    
+    # Try to get release date and name
+    local details_url="${RELEASES_URL}${version}/"
+    local release_info=$(curl -s "$details_url" | grep -E "(Release|Name):" | head -2 | tr '\n' ' ')
+    
+    echo "$release_info"
+}
+
+# Check for updates
+check_updates() {
+    local current="$1"
+    local json_output="$2"
+    
+    # Load releases from cache or fetch
+    if is_cache_valid && [ "$NO_CACHE" != "true" ]; then
+        info "Using cached release data"
+    else
+        fetch_releases
+    fi
+    
+    if [ ! -f "$CACHE_FILE" ]; then
+        error "No release data available"
+    fi
+    
+    # Read releases
+    local releases=()
+    while IFS= read -r line; do
+        releases+=("$line")
+    done < "$CACHE_FILE"
+    
+    # Find current version position
+    local current_found=false
+    local newer_releases=()
+    
+    # Extract base version (e.g., 22.04 from 22.04.3)
+    local current_base=$(echo "$current" | grep -oE '^[0-9]+\.[0-9]+')
+    
+    for release in "${releases[@]}"; do
+        # Check if this is our current version or newer
+        if [[ "$release" == "$current_base"* ]]; then
+            current_found=true
+            
+            # Check if it's a newer point release
+            version_compare "$release" "$current"
+            local cmp_result=$?
+            
+            if [ $cmp_result -eq 2 ]; then
+                newer_releases+=("$release")
+            fi
+        elif [ "$current_found" = true ]; then
+            # All subsequent releases are newer
+            newer_releases+=("$release")
+        fi
+    done
+    
+    # Check for major version updates
+    local latest_version="${releases[-1]}"
+    local latest_lts=""
+    
+    # Find latest LTS
+    for release in "${releases[@]}"; do
+        if [[ "$release" =~ ^[0-9]+\.04(\.[0-9]+)?$ ]]; then
+            local year=$(echo "$release" | cut -d. -f1)
+            if [ $((year % 2)) -eq 0 ]; then
+                latest_lts="$release"
+            fi
+        fi
+    done
+    
+    # Output results
+    if [ "$json_output" = "true" ]; then
+        # JSON output
+        printf '{\n'
+        printf '  "current_version": "%s",\n' "$current"
+        printf '  "latest_version": "%s",\n' "$latest_version"
+        printf '  "latest_lts": "%s",\n' "$latest_lts"
+        printf '  "updates_available": %s,\n' "${#newer_releases[@]}"
+        printf '  "newer_releases": [\n'
+        
+        local first=true
+        for release in "${newer_releases[@]}"; do
+            if [ "$first" = true ]; then
+                first=false
+            else
+                printf ',\n'
+            fi
+            printf '    "%s"' "$release"
+        done
+        
+        printf '\n  ]\n}\n'
+    else
+        # Human-readable output
+        echo
+        notice "Current Version: $current"
+        notice "Latest Version: $latest_version"
+        notice "Latest LTS: $latest_lts"
+        echo
+        
+        if [ ${#newer_releases[@]} -eq 0 ]; then
+            success "You are using the latest available version!"
+        else
+            info "Found ${#newer_releases[@]} newer release(s):"
+            echo
+            
+            for release in "${newer_releases[@]}"; do
+                # Determine release type
+                local release_type="Standard"
+                if [[ "$release" =~ ^[0-9]+\.04(\.[0-9]+)?$ ]]; then
+                    local year=$(echo "$release" | cut -d. -f1)
+                    if [ $((year % 2)) -eq 0 ]; then
+                        release_type="LTS"
+                    fi
+                fi
+                
+                echo -e "  ${CYAN}•${NC} Ubuntu $release ($release_type)"
+                
+                # Show download command
+                if [[ "$release" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "    Download: ./scripts/download-iso.sh --version $release"
+                fi
+            done
+            
+            echo
+            
+            # Update instructions
+            if [ "$NOTIFY" = "true" ]; then
+                notice "To update your .env file:"
+                echo "  sed -i 's/UBUNTU_VERSION=.*/UBUNTU_VERSION=$latest_version/' .env"
+                echo
+                
+                notice "To download the latest ISO:"
+                echo "  ./scripts/download-iso.sh --version $latest_version"
+            fi
+        fi
+    fi
+}
+
+# Parse arguments
+parse_args() {
+    local json_output=false
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --current)
+                CURRENT_VERSION="$2"
+                shift 2
+                ;;
+            --all)
+                CHECK_LTS_ONLY=false
+                shift
+                ;;
+            --no-cache)
+                NO_CACHE=true
+                shift
+                ;;
+            --quiet)
+                NOTIFY=false
+                shift
+                ;;
+            --json)
+                json_output=true
+                NOTIFY=false
+                shift
+                ;;
+            --help|-h)
+                usage
+                ;;
+            *)
+                error "Unknown option: $1"
+                ;;
+        esac
+    done
+    
+    # Export for use in functions
+    export JSON_OUTPUT=$json_output
+    export NO_CACHE="${NO_CACHE:-false}"
+}
+
+# Main function
+main() {
+    parse_args "$@"
+    
+    if [ "$JSON_OUTPUT" != "true" ]; then
+        info "Ubuntu Version Update Checker"
+    fi
+    
+    # Load current version from .env if not specified
+    if [ -f "$PROJECT_DIR/.env" ] && [ -z "$CURRENT_VERSION" ]; then
+        source "$PROJECT_DIR/.env" 2>/dev/null || true
+        CURRENT_VERSION="${UBUNTU_VERSION:-22.04.3}"
+    fi
+    
+    # Check for updates
+    check_updates "$CURRENT_VERSION" "$JSON_OUTPUT"
+}
+
+# Run main if not sourced
+if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
+    main "$@"
+fi

@@ -1,0 +1,106 @@
+#cloud-config
+# Secure Ubuntu Server Template with Dynamic Credentials
+# This template uses environment variables for sensitive data
+
+version: 1
+
+# Locale and keyboard
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+# Network - DHCP on first interface
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+
+# Storage - LVM layout
+storage:
+  layout:
+    name: lvm
+
+# Identity configuration - temporary installer user
+identity:
+  hostname: secure-server
+  # Temporary user for installation (will be removed)
+  username: installer
+  # Temporary password - will be removed
+  password: "$6$rounds=4096$temp$8AHKRh3k3RXRD8YP$ItbGxVWJa5P1n8lLYe4fVMXOuyYiAzeFVPuXpHwXQnwz9IZwFWZGNvJbX3PRg7gqYVxdLR4qKlLSZxeVR7/Yy."
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: false  # KEY-ONLY authentication enforced
+  authorized-keys: []  # No keys for installer user
+
+# Package selection
+packages:
+  - openssh-server
+  - sudo
+  - curl
+  - wget
+  - nano
+  - net-tools
+  - ufw
+
+# System updates
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+# Timezone
+timezone: UTC
+
+# Post-installation commands
+late-commands:
+  # Create the actual user with sudo access
+  - curtin in-target --target=/target -- useradd -m -s /bin/bash -G sudo {{DEFAULT_USERNAME}}
+  - curtin in-target --target=/target -- sh -c 'echo "{{DEFAULT_USERNAME}}:{{DEFAULT_USER_PASSWORD_HASH}}" | chpasswd -e'
+  
+  # Set up SSH directory and key
+  - curtin in-target --target=/target -- mkdir -p /home/{{DEFAULT_USERNAME}}/.ssh
+  - echo "{{DEFAULT_USER_SSH_KEY}}" > /target/home/{{DEFAULT_USERNAME}}/.ssh/authorized_keys
+  - curtin in-target --target=/target -- chmod 700 /home/{{DEFAULT_USERNAME}}/.ssh
+  - curtin in-target --target=/target -- chmod 600 /home/{{DEFAULT_USERNAME}}/.ssh/authorized_keys
+  - curtin in-target --target=/target -- chown -R {{DEFAULT_USERNAME}}:{{DEFAULT_USERNAME}} /home/{{DEFAULT_USERNAME}}/.ssh
+  
+  # Set root password (but it will be locked for SSH)
+  - curtin in-target --target=/target -- sh -c 'echo "root:{{ROOT_PASSWORD_HASH}}" | chpasswd -e'
+  
+  # Harden SSH configuration
+  - |
+    cat > /target/etc/ssh/sshd_config.d/99-hardening.conf << EOF
+    PermitRootLogin no
+    PasswordAuthentication no
+    PubkeyAuthentication yes
+    ChallengeResponseAuthentication no
+    UsePAM yes
+    X11Forwarding no
+    PrintMotd no
+    AcceptEnv LANG LC_*
+    Subsystem sftp /usr/lib/openssh/sftp-server
+    ClientAliveInterval 120
+    ClientAliveCountMax 3
+    MaxAuthTries 3
+    MaxSessions 10
+    EOF
+  
+  # Remove installer user
+  - curtin in-target --target=/target -- userdel -r installer || true
+  
+  # Enable UFW firewall with SSH
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw default deny incoming
+  - curtin in-target --target=/target -- ufw default allow outgoing
+  - curtin in-target --target=/target -- ufw allow ssh
+  
+  # Set secure permissions
+  - curtin in-target --target=/target -- chmod 700 /root
+  - curtin in-target --target=/target -- chmod 700 /home/{{DEFAULT_USERNAME}}
+  
+  # Create MOTD
+  - echo "Secure Ubuntu Server - Access via SSH key only" > /target/etc/motd

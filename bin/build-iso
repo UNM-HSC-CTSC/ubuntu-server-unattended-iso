@@ -1,0 +1,500 @@
+#!/bin/bash
+
+# Ubuntu Server Unattended ISO Builder
+# Creates unattended installation ISOs by injecting autoinstall.yaml
+
+set -euo pipefail
+
+# Script directory - handle both old and new locations
+if [ -L "${BASH_SOURCE[0]}" ]; then
+    # If called via symlink, get the real script location
+    REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+    SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)"
+else
+    # If called directly from bin/, go up one level
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+
+# Default values
+PROFILE=""
+UBUNTU_VERSION="${UBUNTU_VERSION:-22.04.3}"
+UBUNTU_MIRROR="${UBUNTU_MIRROR:-https://releases.ubuntu.com}"
+CACHE_DIR="${CACHE_DIR:-${SCRIPT_DIR}/downloads}"
+OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output}"
+NO_CACHE=false
+SKIP_VALIDATION=false
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Helper functions
+error() {
+    echo -e "${RED}Error:${NC} $1" >&2
+    exit 1
+}
+
+info() {
+    echo -e "${YELLOW}Info:${NC} $1"
+}
+
+success() {
+    echo -e "${GREEN}Success:${NC} $1"
+}
+
+usage() {
+    cat << EOF
+Usage: $0 --profile PROFILE_NAME [options]
+
+Creates an unattended Ubuntu Server ISO with the specified profile.
+
+Required:
+    --profile NAME         Profile name from profiles/ directory
+
+Options:
+    --ubuntu-version VER   Ubuntu version (default: $UBUNTU_VERSION)
+    --ubuntu-mirror URL    Ubuntu mirror URL (default: $UBUNTU_MIRROR)
+    --no-cache            Force fresh ISO download
+    --output-dir DIR      Output directory (default: $OUTPUT_DIR)
+    --skip-validation     Skip autoinstall.yaml validation
+    --help                Show this help message
+
+For template-secure profile, set these environment variables:
+    DEFAULT_USERNAME       Username for the default user
+    DEFAULT_USER_PASSWORD  Password for the default user
+    DEFAULT_USER_SSH_KEY   SSH public key for the default user
+    ROOT_PASSWORD         Root account password
+
+Examples:
+    $0 --profile example-minimal
+    $0 --profile web-server --ubuntu-version 22.04.3
+    $0 --profile database --no-cache
+
+    # With credentials:
+    export DEFAULT_USERNAME="ctsc_user"
+    export DEFAULT_USER_PASSWORD="UserPass123!"
+    export DEFAULT_USER_SSH_KEY="ssh-ed25519 AAAA..."
+    export ROOT_PASSWORD="RootPass123!"
+    $0 --profile template-secure
+
+EOF
+    exit 0
+}
+
+# Global variable for tracking temporary files with credentials
+SECURE_TEMP_FILES=()
+
+# Function to create secure temporary file
+create_secure_temp() {
+    local temp_file
+    if [ -d /dev/shm ]; then
+        temp_file=$(mktemp -p /dev/shm "autoinstall.XXXXXX")
+    else
+        temp_file=$(mktemp /tmp/autoinstall.XXXXXX)
+    fi
+    chmod 600 "$temp_file"
+    SECURE_TEMP_FILES+=("$temp_file")
+    echo "$temp_file"
+}
+
+# Validate password complexity
+validate_password_complexity() {
+    local var_name="$1"
+    local password="$2"
+    
+    if [ ${#password} -lt 12 ]; then
+        error "$var_name must be at least 12 characters long"
+    fi
+    
+    if ! [[ "$password" =~ [A-Z] ]]; then
+        error "$var_name must contain at least one uppercase letter"
+    fi
+    
+    if ! [[ "$password" =~ [a-z] ]]; then
+        error "$var_name must contain at least one lowercase letter"
+    fi
+    
+    if ! [[ "$password" =~ [0-9] ]]; then
+        error "$var_name must contain at least one number"
+    fi
+    
+    if ! [[ "$password" =~ [^a-zA-Z0-9] ]]; then
+        error "$var_name must contain at least one special character"
+    fi
+}
+
+# Validate credentials for template-secure profile
+validate_credentials() {
+    # Check if DEFAULT_USERNAME is set
+    if [ -z "${DEFAULT_USERNAME:-}" ]; then
+        error "DEFAULT_USERNAME environment variable is required. Cannot create VM with no user access and root login disabled."
+    fi
+    
+    # Validate username (alphanumeric, underscore, dash, starting with letter)
+    if ! [[ "$DEFAULT_USERNAME" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; then
+        error "Invalid username format. Must start with lowercase letter, contain only lowercase letters, numbers, underscore, dash (max 32 chars)"
+    fi
+    
+    # Check if DEFAULT_USER_PASSWORD is provided
+    if [ -z "${DEFAULT_USER_PASSWORD:-}" ]; then
+        error "DEFAULT_USER_PASSWORD environment variable is required"
+    fi
+    
+    # Check default user password is not blank
+    if [[ -z "${DEFAULT_USER_PASSWORD// }" ]]; then
+        error "DEFAULT_USER_PASSWORD cannot be blank or contain only whitespace"
+    fi
+    
+    # Validate default user password complexity
+    validate_password_complexity "DEFAULT_USER_PASSWORD" "$DEFAULT_USER_PASSWORD"
+    
+    # Check if SSH key is provided
+    if [ -z "${DEFAULT_USER_SSH_KEY:-}" ]; then
+        error "DEFAULT_USER_SSH_KEY environment variable is required for SSH access"
+    fi
+    
+    # Validate SSH key format
+    if ! [[ "$DEFAULT_USER_SSH_KEY" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
+        error "Invalid SSH key format. Must start with ssh-rsa, ssh-ed25519, or ssh-ecdsa"
+    fi
+    
+    # Check root password is not empty
+    if [ -z "${ROOT_PASSWORD:-}" ]; then
+        error "ROOT_PASSWORD environment variable is required"
+    fi
+    
+    # Check root password is not blank
+    if [[ -z "${ROOT_PASSWORD// }" ]]; then
+        error "ROOT_PASSWORD cannot be blank or contain only whitespace"
+    fi
+    
+    # Validate root password complexity
+    validate_password_complexity "ROOT_PASSWORD" "$ROOT_PASSWORD"
+}
+
+# Enhanced cleanup function
+secure_cleanup() {
+    local extract_dir="${1:-}"
+    
+    # Shred any temporary files that contained credentials
+    for temp_file in "${SECURE_TEMP_FILES[@]}"; do
+        if [ -f "$temp_file" ]; then
+            if command -v shred >/dev/null 2>&1; then
+                shred -vfz -n 3 "$temp_file" 2>/dev/null || rm -f "$temp_file"
+            else
+                rm -f "$temp_file"
+            fi
+        fi
+    done
+    
+    # Clear the processed autoinstall from extract directory
+    if [ -n "$extract_dir" ] && [ -f "${extract_dir}/autoinstall/user-data" ]; then
+        if command -v shred >/dev/null 2>&1; then
+            shred -vfz -n 3 "${extract_dir}/autoinstall/user-data" 2>/dev/null || rm -f "${extract_dir}/autoinstall/user-data"
+        else
+            rm -f "${extract_dir}/autoinstall/user-data"
+        fi
+    fi
+    
+    # Remove entire extract directory
+    if [ -n "$extract_dir" ] && [ -d "$extract_dir" ]; then
+        rm -rf "$extract_dir"
+    fi
+    
+    # Clear environment variables from current shell
+    unset ROOT_PASSWORD
+    unset DEFAULT_USERNAME  
+    unset DEFAULT_USER_PASSWORD
+    unset DEFAULT_USER_SSH_KEY
+    unset ROOT_PASSWORD_HASH
+    unset DEFAULT_USER_PASSWORD_HASH
+}
+
+# Source ISO tools abstraction
+# Try new path first, fall back to old path for compatibility
+if [ -f "${SCRIPT_DIR}/lib/iso-tools.sh" ]; then
+    source "${SCRIPT_DIR}/lib/iso-tools.sh"
+elif [ -f "${SCRIPT_DIR}/scripts/iso-tools.sh" ]; then
+    source "${SCRIPT_DIR}/scripts/iso-tools.sh"
+else
+    error "Cannot find iso-tools.sh library"
+fi
+
+# Find available ISO manipulation tool
+find_iso_tool() {
+    if ! detect_iso_backend; then
+        error "No suitable ISO manipulation method found. Need mount/umount or Python 3.6+"
+    fi
+    info "Using $ISO_BACKEND backend for ISO manipulation"
+}
+
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --profile)
+                PROFILE="$2"
+                shift 2
+                ;;
+            --ubuntu-version)
+                UBUNTU_VERSION="$2"
+                shift 2
+                ;;
+            --ubuntu-mirror)
+                UBUNTU_MIRROR="$2"
+                shift 2
+                ;;
+            --no-cache)
+                NO_CACHE=true
+                shift
+                ;;
+            --output-dir)
+                OUTPUT_DIR="$2"
+                shift 2
+                ;;
+            --skip-validation)
+                SKIP_VALIDATION=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                ;;
+            *)
+                error "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "$PROFILE" ]; then
+        error "Profile is required. Use --profile PROFILE_NAME"
+    fi
+}
+
+# Validate profile exists
+validate_profile() {
+    local profile_dir="${SCRIPT_DIR}/profiles/${PROFILE}"
+    
+    if [ ! -d "$profile_dir" ]; then
+        error "Profile '$PROFILE' not found in profiles/"
+    fi
+    
+    if [ ! -f "${profile_dir}/autoinstall.yaml" ]; then
+        error "Profile '$PROFILE' missing autoinstall.yaml"
+    fi
+    
+    info "Using profile: $PROFILE"
+}
+
+# Validate autoinstall configuration
+validate_autoinstall() {
+    if [ "$SKIP_VALIDATION" = true ]; then
+        info "Skipping autoinstall validation (--skip-validation flag set)"
+        return 0
+    fi
+    
+    local profile_dir="${SCRIPT_DIR}/profiles/${PROFILE}"
+    local autoinstall_file="${profile_dir}/autoinstall.yaml"
+    
+    info "Validating autoinstall configuration..."
+    
+    # Check if validation script exists
+    if [ ! -f "${SCRIPT_DIR}/scripts/validate-autoinstall.sh" ]; then
+        info "Warning: validate-autoinstall.sh not found, skipping validation"
+        return 0
+    fi
+    
+    # Run validation - prefer local validation if Subiquity is problematic
+    if bash "${SCRIPT_DIR}/scripts/validate-autoinstall.sh" --no-subiquity "$autoinstall_file" >/dev/null 2>&1; then
+        success "Autoinstall validation passed"
+        return 0
+    else
+        # Fallback to basic YAML syntax check
+        if "${SCRIPT_DIR}/scripts/validate-yaml-syntax.sh" "$autoinstall_file" >/dev/null 2>&1; then
+            info "Warning: Full autoinstall validation unavailable, but YAML syntax is valid"
+            return 0
+        else
+            error "Autoinstall validation failed for profile '$PROFILE'"
+            info "Run '${SCRIPT_DIR}/scripts/validate-autoinstall.sh $autoinstall_file' for details"
+            return 1
+        fi
+    fi
+}
+
+# Create necessary directories
+create_directories() {
+    mkdir -p "$CACHE_DIR" "$OUTPUT_DIR"
+    info "Created cache and output directories"
+}
+
+# Download Ubuntu ISO
+download_iso() {
+    local iso_name="ubuntu-${UBUNTU_VERSION}-live-server-amd64.iso"
+    local iso_url="${UBUNTU_MIRROR}/${UBUNTU_VERSION}/${iso_name}"
+    local iso_path="${CACHE_DIR}/${iso_name}"
+    
+    if [ -f "$iso_path" ] && [ "$NO_CACHE" = false ]; then
+        info "Using cached ISO: $iso_path"
+    else
+        info "Downloading Ubuntu ${UBUNTU_VERSION} ISO..."
+        info "URL: $iso_url"
+        
+        if ! wget -c -O "$iso_path" "$iso_url"; then
+            rm -f "$iso_path"
+            error "Failed to download ISO from $iso_url"
+        fi
+        
+        success "Downloaded ISO to $iso_path"
+    fi
+    
+    echo "$iso_path"
+}
+
+# Extract ISO contents (wrapper for iso-tools)
+extract_iso_wrapper() {
+    local iso_path="$1"
+    local extract_dir="${SCRIPT_DIR}/tmp_iso_extract_$$"
+    
+    info "Extracting ISO contents..."
+    mkdir -p "$extract_dir"
+    
+    if ! extract_iso "$iso_path" "$extract_dir"; then
+        rm -rf "$extract_dir"
+        error "Failed to extract ISO"
+    fi
+    
+    success "Extracted ISO contents"
+    echo "$extract_dir"
+}
+
+# Inject autoinstall configuration
+inject_autoinstall() {
+    local extract_dir="$1"
+    local profile_dir="${SCRIPT_DIR}/profiles/${PROFILE}"
+    
+    info "Injecting autoinstall.yaml..."
+    
+    # Create autoinstall directory if it doesn't exist
+    mkdir -p "${extract_dir}/autoinstall"
+    
+    if [ "$PROFILE" = "template-secure" ]; then
+        # Validate all required environment variables
+        validate_credentials
+        
+        info "Processing template with credentials..."
+        
+        # Hash passwords in memory
+        ROOT_PASSWORD_HASH=$(echo "$ROOT_PASSWORD" | openssl passwd -6 -stdin)
+        DEFAULT_USER_PASSWORD_HASH=$(echo "$DEFAULT_USER_PASSWORD" | openssl passwd -6 -stdin)
+        
+        # Create temporary file in RAM
+        local temp_autoinstall=$(create_secure_temp)
+        
+        # Process template into temporary file
+        sed -e "s|{{DEFAULT_USERNAME}}|${DEFAULT_USERNAME}|g" \
+            -e "s|{{DEFAULT_USER_PASSWORD_HASH}}|${DEFAULT_USER_PASSWORD_HASH}|g" \
+            -e "s|{{DEFAULT_USER_SSH_KEY}}|${DEFAULT_USER_SSH_KEY}|g" \
+            -e "s|{{ROOT_PASSWORD_HASH}}|${ROOT_PASSWORD_HASH}|g" \
+            "${profile_dir}/autoinstall.yaml" > "$temp_autoinstall"
+        
+        # Move to final location
+        mv "$temp_autoinstall" "${extract_dir}/autoinstall/user-data"
+        
+        # Immediately clear hashes from memory
+        unset ROOT_PASSWORD_HASH
+        unset DEFAULT_USER_PASSWORD_HASH
+        
+        success "Processed template with credentials"
+    else
+        # Copy autoinstall.yaml for normal profiles
+        cp "${profile_dir}/autoinstall.yaml" "${extract_dir}/autoinstall/user-data"
+    fi
+    
+    # Create empty meta-data file (required by cloud-init)
+    touch "${extract_dir}/autoinstall/meta-data"
+    
+    # Modify boot configuration to add autoinstall
+    if [ -f "${extract_dir}/boot/grub/grub.cfg" ]; then
+        # Backup original
+        cp "${extract_dir}/boot/grub/grub.cfg" "${extract_dir}/boot/grub/grub.cfg.bak"
+        
+        # Add autoinstall kernel parameter
+        sed -i 's/---/autoinstall ds=nocloud;s=\/cdrom\/autoinstall\/ ---/g' "${extract_dir}/boot/grub/grub.cfg"
+    fi
+    
+    success "Injected autoinstall configuration"
+}
+
+# Create new ISO (wrapper for iso-tools)
+create_iso_wrapper() {
+    local extract_dir="$1"
+    local iso_name="${PROFILE}-ubuntu-${UBUNTU_VERSION}-$(date +%Y%m%d).iso"
+    local output_path="${OUTPUT_DIR}/${iso_name}"
+    
+    info "Creating new ISO: $iso_name"
+    
+    if ! create_iso "$extract_dir" "$output_path" "Ubuntu Server ${UBUNTU_VERSION} Unattended"; then
+        error "Failed to create ISO"
+    fi
+    
+    success "Created ISO: $output_path"
+    echo "$output_path"
+}
+
+# Cleanup temporary files
+cleanup() {
+    local extract_dir="$1"
+    if [ -n "$extract_dir" ] && [ -d "$extract_dir" ]; then
+        info "Cleaning up temporary files..."
+        rm -rf "$extract_dir"
+    fi
+}
+
+# Main function
+main() {
+    parse_args "$@"
+    
+    info "Ubuntu Server Unattended ISO Builder"
+    info "===================================="
+    
+    find_iso_tool
+    validate_profile
+    validate_autoinstall
+    create_directories
+    
+    # Download ISO
+    ISO_PATH=$(download_iso)
+    
+    # Extract ISO
+    EXTRACT_DIR=$(extract_iso_wrapper "$ISO_PATH")
+    
+    # Set trap to cleanup on exit (use secure_cleanup for template-secure)
+    if [ "$PROFILE" = "template-secure" ]; then
+        trap 'secure_cleanup "$EXTRACT_DIR"' EXIT INT TERM
+    else
+        trap "cleanup '$EXTRACT_DIR'" EXIT
+    fi
+    
+    # Inject autoinstall
+    inject_autoinstall "$EXTRACT_DIR"
+    
+    # Create new ISO
+    OUTPUT_ISO=$(create_iso_wrapper "$EXTRACT_DIR")
+    
+    # Explicit cleanup before success message
+    if [ "$PROFILE" = "template-secure" ]; then
+        secure_cleanup "$EXTRACT_DIR"
+        info "All temporary files and credentials have been securely removed"
+    fi
+    
+    success "Build complete!"
+    info "Output ISO: $OUTPUT_ISO"
+    info "Size: $(du -h "$OUTPUT_ISO" | cut -f1)"
+}
+
+# Run main if not sourced
+if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
+    main "$@"
+fi

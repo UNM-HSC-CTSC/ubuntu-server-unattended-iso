@@ -1,0 +1,160 @@
+#cloud-config
+# Web Server installation profile
+# This creates a LAMP stack server with Apache, PHP, and MySQL
+
+version: 1
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+# Network configuration - Static IP
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - 192.168.1.100/24
+      gateway4: 192.168.1.1
+      nameservers:
+        addresses: [8.8.8.8, 8.8.4.4]
+
+# Storage configuration - LVM with larger root partition
+storage:
+  layout:
+    name: lvm
+  config:
+    - type: disk
+      id: disk-0
+      ptable: gpt
+      wipe: superblock-recursive
+      preserve: false
+      grub_device: true
+    - type: partition
+      id: partition-0
+      device: disk-0
+      size: 1MB
+      flag: bios_grub
+    - type: partition
+      id: partition-1
+      device: disk-0
+      size: 1GB
+      wipe: superblock
+      flag: boot
+    - type: partition
+      id: partition-2
+      device: disk-0
+      size: -1
+      wipe: superblock
+    - type: lvm_volgroup
+      id: vg-0
+      name: ubuntu-vg
+      devices:
+        - partition-2
+    - type: lvm_partition
+      id: lv-root
+      name: root
+      volgroup: vg-0
+      size: 20GB
+    - type: lvm_partition
+      id: lv-var
+      name: var
+      volgroup: vg-0
+      size: 10GB
+    - type: format
+      id: format-0
+      volume: partition-1
+      fstype: ext4
+    - type: format
+      id: format-1
+      volume: lv-root
+      fstype: ext4
+    - type: format
+      id: format-2
+      volume: lv-var
+      fstype: ext4
+    - type: mount
+      id: mount-0
+      device: format-1
+      path: /
+    - type: mount
+      id: mount-1
+      device: format-0
+      path: /boot
+    - type: mount
+      id: mount-2
+      device: format-2
+      path: /var
+
+# User configuration
+identity:
+  hostname: web-server
+  username: webadmin
+  realname: "Web Administrator"
+  # Password: WebAdmin123! (change immediately after installation)
+  password: "$6$rounds=4096$8AHXJvqBJGt1S4$9Q.kkHspBPmKJXmASfUMPmF5VkYZ1I6JMJ4kxJKMkT1g6JmFq8x9FN9gFcKvKjJLKqW6lkf3TXCM9fPE7Rk8U/"
+
+ssh:
+  install-server: true
+  allow-pw: false
+  authorized-keys:
+    - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... (add your SSH key here)"
+
+# Web server packages
+packages:
+  # Web server
+  - apache2
+  - libapache2-mod-php
+  - php
+  - php-mysql
+  - php-curl
+  - php-gd
+  - php-mbstring
+  - php-xml
+  - php-zip
+  # Database
+  - mysql-server
+  - mysql-client
+  # SSL/Security
+  - certbot
+  - python3-certbot-apache
+  - fail2ban
+  - ufw
+  # Monitoring
+  - htop
+  - iotop
+  - vnstat
+  # Utils
+  - git
+  - unzip
+  - wget
+  - curl
+
+# System configuration
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+timezone: America/New_York
+
+# Enable automatic security updates
+unattended-upgrades:
+  enable: true
+
+# Post-installation commands
+late-commands:
+  # Configure firewall
+  - curtin in-target --target=/target -- ufw default deny incoming
+  - curtin in-target --target=/target -- ufw default allow outgoing
+  - curtin in-target --target=/target -- ufw allow ssh
+  - curtin in-target --target=/target -- ufw allow http
+  - curtin in-target --target=/target -- ufw allow https
+  - curtin in-target --target=/target -- ufw --force enable
+  # Enable Apache modules
+  - curtin in-target --target=/target -- a2enmod rewrite ssl headers
+  # Create web root
+  - curtin in-target --target=/target -- mkdir -p /var/www/html
+  - echo "<?php phpinfo(); ?>" > /target/var/www/html/info.php
+  # Set MOTD
+  - echo "Web Server (LAMP Stack) - Remember to secure MySQL and remove info.php!" > /target/etc/motd
