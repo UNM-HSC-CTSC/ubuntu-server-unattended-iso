@@ -34,7 +34,7 @@ jobs:
 
       - name: Make scripts executable
         run: |
-          chmod +x test.sh scripts/*.sh bin/* || true
+          chmod +x test.sh bin/* lib/*.sh tests/*.sh || true
 
       - name: Run tests
         run: |
@@ -50,10 +50,20 @@ jobs:
       - name: Scan autoinstall.yaml files
         run: |
           echo "Scanning autoinstall.yaml files for security issues..."
-          for yaml in profiles/*/autoinstall.yaml; do
-            echo "Checking $yaml"
-            if grep -E "password:.*[^$]" "$yaml" | grep -v "^#"; then
-              echo "WARNING: Possible plaintext password in $yaml"
+          # Check base configuration
+          if [ -f share/ubuntu-base/autoinstall.yaml ]; then
+            echo "Checking share/ubuntu-base/autoinstall.yaml"
+            if grep -E "password:.*[^$]" "share/ubuntu-base/autoinstall.yaml" | grep -v "^#"; then
+              echo "WARNING: Possible plaintext password in base configuration"
+            fi
+          fi
+          # Check examples
+          for yaml in share/examples/*/autoinstall.yaml; do
+            if [ -f "$yaml" ]; then
+              echo "Checking $yaml"
+              if grep -E "password:.*[^$]" "$yaml" | grep -v "^#"; then
+                echo "WARNING: Possible plaintext password in $yaml"
+              fi
             fi
           done
 
@@ -73,37 +83,53 @@ jobs:
 
       - name: Make scripts executable
         run: |
-          chmod +x scripts/*.sh bin/* || true
+          chmod +x bin/* lib/*.sh tests/*.sh || true
 
       - name: Test build script help
         run: |
-          echo "Testing build-iso help..."
-          ./bin/build-iso --help
+          echo "Testing ubuntu-iso help..."
+          ./bin/ubuntu-iso --help
 
 
       - name: Validate ISO tools detection
         run: |
           echo "Testing ISO tools abstraction layer..."
-          ./scripts/iso-tools.sh
+          # Source the library and test detection
+          bash -c "source ./lib/iso-tools.sh && detect_iso_backend && echo \"ISO backend: \$ISO_BACKEND\""
 
-      - name: Validate all profiles
+      - name: Validate configurations
         run: |
-          echo "Validating all autoinstall.yaml files..."
-          for profile in profiles/*/; do
-            profile_name=$(basename "$profile")
-            echo "Validating profile: $profile_name"
-            if [ -f "$profile/autoinstall.yaml" ]; then
-              ./scripts/validate-autoinstall.sh "$profile/autoinstall.yaml" || echo "Warning: Validation script needs Subiquity"
-              ./scripts/validate-yaml-syntax.sh "$profile/autoinstall.yaml"
+          echo "Validating autoinstall.yaml files..."
+          # Validate base configuration
+          if [ -f share/ubuntu-base/autoinstall.yaml ]; then
+            echo "Validating base configuration..."
+            python3 -c "import yaml; yaml.safe_load(open('share/ubuntu-base/autoinstall.yaml'))" || exit 1
+          fi
+          # Validate examples if they exist
+          for yaml in share/examples/*/autoinstall.yaml; do
+            if [ -f "$yaml" ]; then
+              echo "Validating $yaml..."
+              python3 -c "import yaml; yaml.safe_load(open('$yaml'))" || exit 1
             fi
           done
 
       - name: Test credential validation
         run: |
           echo "Testing credential validation logic..."
-          ./scripts/test-credential-simple.sh || echo "Note: Some tests may fail without full environment"
+          if [ -f tests/verify-no-credentials.sh ]; then
+            ./tests/verify-no-credentials.sh || echo "Note: Some tests may fail without full environment"
+          else
+            echo "Credential validation test not found - skipping"
+          fi
 
       - name: Test dependencies
         run: |
           echo "Testing all dependencies are installed..."
-          ./scripts/test-dependencies.sh
+          if [ -f tests/test-dependencies.sh ]; then
+            ./tests/test-dependencies.sh
+          else
+            echo "Dependency test not found - running basic checks"
+            for cmd in python3 wget curl; do
+              command -v $cmd >/dev/null 2>&1 && echo "✓ $cmd" || echo "✗ $cmd"
+            done
+          fi

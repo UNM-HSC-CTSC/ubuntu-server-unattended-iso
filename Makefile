@@ -93,9 +93,7 @@ install:
 test:
 	@echo "$(BLUE)Running test suite...$(NC)"
 	@if [ -x test.sh ]; then \
-		./test.sh; \
-	elif [ -x $(SCRIPTS_DIR)/test.sh ]; then \
-		$(SCRIPTS_DIR)/test.sh; \
+		NO_COLOR=1 ./test.sh; \
 	else \
 		echo "$(RED)Error: test.sh not found$(NC)"; \
 		exit 1; \
@@ -161,16 +159,6 @@ list-examples:
 		echo "  No examples found"; \
 	fi
 
-# Interactive profile generator
-.PHONY: generate
-generate:
-	@echo "$(BLUE)Starting interactive profile generator...$(NC)"
-	@if [ -x $(BIN_DIR)/generate-autoinstall ]; then \
-		$(BIN_DIR)/generate-autoinstall; \
-	else \
-		echo "$(RED)Error: generate-autoinstall script not found$(NC)"; \
-		exit 1; \
-	fi
 
 # Validate all profiles
 .PHONY: validate
