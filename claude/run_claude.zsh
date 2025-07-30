@@ -38,9 +38,17 @@ if [ -n "$container" ]; then
   docker start -ai claude-code
 else
   echo "Running new 'claude-code' container..."
+  # Check if host has GitHub CLI config to mount
+  GH_CONFIG_MOUNT=""
+  if [ -d "$HOME/.config/gh" ]; then
+    echo "Found GitHub CLI config, mounting it..."
+    GH_CONFIG_MOUNT="-v $HOME/.config/gh:/root/.config/gh"
+  fi
+  
   docker run --name claude-code -it \
     -v "$USER_CLAUDE_DIR:/root/.claude" \
     -v "$PROJECT_ROOT:/app" \
+    $GH_CONFIG_MOUNT \
     -w /app \
     claude-code
 fi

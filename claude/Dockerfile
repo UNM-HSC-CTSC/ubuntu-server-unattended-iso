@@ -45,4 +45,9 @@ RUN npm install -g @anthropic-ai/claude-code \
 # Verify installations
 RUN node --version && npm --version && gh --version
 
-CMD ["claude"]
+# Add entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD []

@@ -44,5 +44,14 @@ if ($container) {
     docker start -ai claude-code
 } else {
     Write-Host "Running new 'claude-code' container..."
-    docker run --name claude-code -it -v "${UserClaudeDir}:/root/.claude" -v "${ProjectRoot}:/app" -w /app claude-code
+    # Check if host has GitHub CLI config to mount
+    $ghConfigMount = ""
+    $ghConfigPath = Join-Path $env:USERPROFILE ".config\gh"
+    if (Test-Path $ghConfigPath) {
+        Write-Host "Found GitHub CLI config, mounting it..."
+        $ghConfigMount = "-v `"${ghConfigPath}:/root/.config/gh`""
+    }
+    
+    $dockerCmd = "docker run --name claude-code -it -v `"${UserClaudeDir}:/root/.claude`" -v `"${ProjectRoot}:/app`" $ghConfigMount -w /app claude-code"
+    Invoke-Expression $dockerCmd
 }
