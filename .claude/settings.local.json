@@ -82,7 +82,8 @@
       "Bash(diff:*)",
       "Bash(git rm:*)",
       "Bash(git config:*)",
-      "Bash(gh run view:*)"
+      "Bash(gh run view:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

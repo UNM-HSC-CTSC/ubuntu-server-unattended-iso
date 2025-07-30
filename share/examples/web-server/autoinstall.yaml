@@ -1,0 +1,319 @@
+#cloud-config
+# Web Server Installation Profile
+# Complete LAMP/LEMP stack with security and performance optimizations
+
+version: 1
+
+# Locale and keyboard
+locale: en_US.UTF-8
+keyboard:
+  layout: us
+  variant: ""
+
+# Network configuration
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+      # For production, consider static IP:
+      # addresses: [192.168.1.100/24]
+      # gateway4: 192.168.1.1
+      # nameservers:
+      #   addresses: [8.8.8.8, 8.8.4.4]
+
+# Storage - LVM with optimized web layout
+storage:
+  layout:
+    name: lvm
+
+# Identity configuration
+identity:
+  hostname: web-server
+  username: webadmin
+  realname: "Web Administrator"
+  # Password is 'WebAdmin123!' - MUST BE CHANGED!
+  password: "$6$rounds=4096$J86aZz0Q$To16RLRVKfLWs4CYYlhN8kN8.HbJbhKbaw/TIn7PJvvEda/eWEDMXDmP2v0yZzGVSMa3VsXxLFfJQrLnL5qiZ0"
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: true
+
+# Comprehensive web server packages
+packages:
+  # Web servers (both installed, user can choose)
+  - nginx
+  - apache2
+  - libapache2-mod-php
+  - libapache2-mod-security2
+  - libapache2-mod-evasive
+  
+  # PHP and extensions
+  - php
+  - php-fpm
+  - php-cli
+  - php-common
+  - php-mysql
+  - php-pgsql
+  - php-sqlite3
+  - php-mongodb
+  - php-redis
+  - php-memcached
+  - php-curl
+  - php-gd
+  - php-imagick
+  - php-mbstring
+  - php-xml
+  - php-zip
+  - php-bcmath
+  - php-intl
+  - php-soap
+  - php-opcache
+  - php-apcu
+  
+  # Database servers
+  - mariadb-server
+  - mariadb-client
+  - postgresql
+  - postgresql-contrib
+  - redis-server
+  - memcached
+  
+  # SSL/TLS and certificates
+  - certbot
+  - python3-certbot-nginx
+  - python3-certbot-apache
+  
+  # Development and deployment tools
+  - git
+  - composer
+  - nodejs
+  - npm
+  - yarn
+  
+  # Performance and caching
+  - varnish
+  - haproxy
+  
+  # Monitoring and logging
+  - prometheus-node-exporter
+  - rsyslog
+  - logrotate
+  
+  # Security tools
+  - fail2ban
+  - ufw
+  - modsecurity-crs
+  
+  # Utilities
+  - htop
+  - iotop
+  - vnstat
+  - ncdu
+  - wget
+  - curl
+  - vim
+  - tmux
+  
+  # Backup tools
+  - rsync
+  - borgbackup
+  - duplicity
+
+# Enable all updates
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+# Timezone
+timezone: UTC
+
+# Enable unattended upgrades
+unattended-upgrades:
+  enable: true
+
+# Extensive post-installation configuration
+late-commands:
+  # System directories
+  - curtin in-target --target=/target -- mkdir -p /var/www/html
+  - curtin in-target --target=/target -- mkdir -p /etc/nginx/sites-available
+  - curtin in-target --target=/target -- mkdir -p /etc/nginx/sites-enabled
+  
+  # Configure firewall
+  - curtin in-target --target=/target -- ufw --force enable
+  - curtin in-target --target=/target -- ufw default deny incoming
+  - curtin in-target --target=/target -- ufw default allow outgoing
+  - curtin in-target --target=/target -- ufw allow 22/tcp
+  - curtin in-target --target=/target -- ufw allow 80/tcp
+  - curtin in-target --target=/target -- ufw allow 443/tcp
+  
+  # Configure fail2ban for web services
+  - |
+    cat <<EOF > /target/etc/fail2ban/jail.local
+    [DEFAULT]
+    bantime = 3600
+    findtime = 600
+    maxretry = 5
+    
+    [sshd]
+    enabled = true
+    
+    [nginx-http-auth]
+    enabled = true
+    
+    [nginx-limit-req]
+    enabled = true
+    
+    [apache-auth]
+    enabled = true
+    
+    [apache-overflows]
+    enabled = true
+    EOF
+  
+  # Optimize PHP configuration
+  - |
+    cat <<EOF > /target/etc/php/8.1/fpm/conf.d/99-optimization.ini
+    ; Performance settings
+    opcache.enable=1
+    opcache.memory_consumption=256
+    opcache.interned_strings_buffer=16
+    opcache.max_accelerated_files=10000
+    opcache.revalidate_freq=2
+    opcache.fast_shutdown=1
+    
+    ; Security settings
+    expose_php = Off
+    display_errors = Off
+    log_errors = On
+    
+    ; File uploads
+    upload_max_filesize = 64M
+    post_max_size = 64M
+    max_file_uploads = 20
+    
+    ; Resource limits
+    memory_limit = 256M
+    max_execution_time = 300
+    max_input_time = 300
+    EOF
+  
+  # Configure MariaDB for performance
+  - |
+    cat <<EOF > /target/etc/mysql/mariadb.conf.d/99-performance.cnf
+    [mysqld]
+    # InnoDB settings
+    innodb_buffer_pool_size = 1G
+    innodb_log_file_size = 256M
+    innodb_flush_method = O_DIRECT
+    innodb_file_per_table = 1
+    
+    # Query cache
+    query_cache_type = 1
+    query_cache_size = 64M
+    
+    # Connections
+    max_connections = 200
+    
+    # Logging
+    slow_query_log = 1
+    slow_query_log_file = /var/log/mysql/slow.log
+    long_query_time = 2
+    EOF
+  
+  # Create default Nginx configuration
+  - |
+    cat <<EOF > /target/etc/nginx/sites-available/default
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        
+        root /var/www/html;
+        index index.php index.html index.htm;
+        
+        server_name _;
+        
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        
+        location / {
+            try_files \$uri \$uri/ =404;
+        }
+        
+        location ~ \.php$ {
+            include snippets/fastcgi-php.conf;
+            fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+        }
+        
+        location ~ /\.ht {
+            deny all;
+        }
+    }
+    EOF
+  
+  # Disable Apache default site (user can enable if preferred over Nginx)
+  - curtin in-target --target=/target -- a2dissite 000-default || true
+  - curtin in-target --target=/target -- systemctl stop apache2 || true
+  - curtin in-target --target=/target -- systemctl disable apache2 || true
+  
+  # Enable and start services
+  - curtin in-target --target=/target -- systemctl enable nginx
+  - curtin in-target --target=/target -- systemctl enable php8.1-fpm
+  - curtin in-target --target=/target -- systemctl enable mariadb
+  - curtin in-target --target=/target -- systemctl enable redis-server
+  - curtin in-target --target=/target -- systemctl enable fail2ban
+  
+  # Create info.php for testing
+  - |
+    cat <<EOF > /target/var/www/html/info.php
+    <?php
+    // Remove this file after testing!
+    phpinfo();
+    ?>
+    EOF
+  
+  # Set correct permissions
+  - curtin in-target --target=/target -- chown -R www-data:www-data /var/www/html
+  
+  # Create database setup script
+  - |
+    cat <<'SCRIPT' > /target/root/secure-mysql.sh
+    #!/bin/bash
+    # Run mysql_secure_installation automatically
+    mysql -e "UPDATE mysql.user SET Password=PASSWORD('CHANGEME') WHERE User='root';"
+    mysql -e "DELETE FROM mysql.user WHERE User='';"
+    mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
+    mysql -e "DROP DATABASE IF EXISTS test;"
+    mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+    mysql -e "FLUSH PRIVILEGES;"
+    echo "MariaDB secured. Remember to change root password!"
+    SCRIPT
+  - curtin in-target --target=/target -- chmod +x /root/secure-mysql.sh
+  
+  # Create welcome message
+  - |
+    cat <<EOF > /target/etc/motd
+    
+    ╔══════════════════════════════════════════════════════════════╗
+    ║                     Web Server Ready!                        ║
+    ╠══════════════════════════════════════════════════════════════╣
+    ║  Nginx:      http://$(hostname -I | awk '{print $1}')       ║
+    ║  PHP Info:   http://$(hostname -I | awk '{print $1}')/info.php ║
+    ║                                                              ║
+    ║  Next Steps:                                                 ║
+    ║  1. Run: sudo /root/secure-mysql.sh                        ║
+    ║  2. Configure your domain and SSL with certbot             ║
+    ║  3. Remove /var/www/html/info.php                          ║
+    ║  4. Deploy your web application                            ║
+    ╚══════════════════════════════════════════════════════════════╝
+    
+    EOF
+
+# Reporting
+reporting:
+  builtin:
+    type: print

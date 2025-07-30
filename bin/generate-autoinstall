@@ -449,6 +449,35 @@ EOF
 
 # Main function
 main() {
+    # Check for help flag
+    if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
+        cat << EOF
+Usage: $0 [options]
+
+Ubuntu Autoinstall Configuration Generator
+Interactive wizard for creating custom autoinstall.yaml configurations
+
+Options:
+    -h, --help    Show this help message and exit
+
+This tool will guide you through creating a custom Ubuntu Server
+installation configuration by asking questions about:
+  - Network setup (DHCP or static IP)
+  - User account and SSH keys
+  - Storage configuration
+  - Package selection
+  - System settings
+
+The generated configuration will be saved in profiles/YOUR_PROFILE_NAME/
+
+Example:
+    $0
+    # Follow the interactive prompts
+
+EOF
+        exit 0
+    fi
+    
     echo
     echo -e "${GREEN}Ubuntu Autoinstall Configuration Generator${NC}"
     echo -e "${GREEN}=========================================${NC}"

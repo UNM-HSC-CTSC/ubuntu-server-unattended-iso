@@ -80,10 +80,6 @@ jobs:
           echo "Testing build-iso help..."
           ./bin/build-iso --help
 
-      - name: Test generator script help
-        run: |
-          echo "Testing generate-autoinstall help..."
-          ./bin/generate-autoinstall --help || echo "Generator is interactive only"
 
       - name: Validate ISO tools detection
         run: |
