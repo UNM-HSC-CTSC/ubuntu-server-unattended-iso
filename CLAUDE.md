@@ -1,22 +1,65 @@
 # Ubuntu Server Unattended ISO Builder - Technical Architecture
 
 ## Overview
-This GitHub Actions-powered project creates unattended Ubuntu Server installation ISOs by injecting autoinstall.yaml configurations into official Ubuntu Server ISOs. It leverages GitHub's CI/CD infrastructure for automated builds, testing, and releases while supporting multiple server profiles and including an interactive generator for creating custom configurations.
+This project is a **tool** for creating custom Ubuntu Server installation ISOs with automated installation configurations. Users can either use the provided base configuration or generate their own custom autoinstall.yaml using the interactive wizard.
 
-## 🎉 Project Status: 100% Complete and Production Ready
+## 🔄 Project Status: Major Refactoring in Progress
 
-The Ubuntu Server Unattended ISO Builder is fully implemented with all planned features operational:
+### Current State (as of last session):
+The project is undergoing a major refactoring to follow industry standards and simplify its purpose:
 
-- ✅ **Core Functionality**: Complete ISO building pipeline
-- ✅ **11 Production Profiles**: Ready for deployment
-- ✅ **Validation System**: Integrated with Canonical's Subiquity
-- ✅ **VM Testing Framework**: Supports Hyper-V and QEMU/KVM
-- ✅ **Ubuntu Update Checker**: Stay current with releases
-- ✅ **Native Tools Philosophy**: Zero external dependencies
-- ✅ **Python Fallback**: Works in restricted environments
-- ✅ **Interactive Generator**: User-friendly profile creation
-- ✅ **GitHub Actions CI/CD**: Automated builds, tests, and releases
-- ✅ **GitHub CLI Integration**: Streamlined workflow management
+**Completed Refactoring:**
+- ✅ Created `lib/` directory with shared libraries (common.sh, download.sh, validate.sh)
+- ✅ Moved test scripts to `tests/` directory
+- ✅ Created `share/` directory with ubuntu-base and examples
+- ✅ Fixed generate-autoinstall to handle --help flag
+- ✅ Fixed GitHub Actions infinite loop issue
+- ✅ Updated .env.example with simplified variables
+- ✅ Removed ISO building from CI/CD (storage optimization)
+
+**Still TODO:**
+- 🔄 Rename bin commands to `ubuntu-iso` and `ubuntu-iso-generate`
+- 🔄 Remove duplicate scripts from scripts/
+- 🔄 Update build-iso to use new lib functions
+- 🔄 Remove template-secure and credential complexity
+- 🔄 Create LICENSE, CONTRIBUTING.md, etc.
+- 🔄 Update README to reflect new structure
+
+### Key Decisions Made:
+1. **Single ISO approach** - Build one base ISO, users customize via generator
+2. **No pre-built artifacts** - GitHub Actions only tests, users build locally
+3. **Industry standard structure** - lib/ for libraries, bin/ for commands, share/ for data
+4. **Simplified configuration** - Removed credential variables and template-secure complexity
+
+## New Project Structure (Industry Standard)
+
+```
+ubuntu-iso-builder/
+├── bin/                    # User-facing commands
+│   ├── build-iso          # (to be renamed: ubuntu-iso)
+│   ├── generate-autoinstall # (to be renamed: ubuntu-iso-generate)
+│   └── build-all          # (to be removed - no longer needed)
+├── lib/                    # Shared libraries (sourced, not executed)
+│   ├── common.sh          # Colors, logging, error handling
+│   ├── download.sh        # ISO download with validation
+│   ├── validate.sh        # YAML and autoinstall validation
+│   └── iso-tools.sh       # ISO manipulation functions
+├── share/                  # Data files
+│   ├── ubuntu-base/       # Default minimal configuration
+│   └── examples/          # Reference configurations
+│       ├── web-server/
+│       ├── database-server/
+│       └── container-host/
+├── tests/                  # Test scripts
+│   ├── test-dependencies.sh
+│   ├── test-credential-simple.sh
+│   └── ... (other tests)
+├── scripts/                # (to be cleaned up - remove duplicates)
+├── profiles/               # (to be removed - replaced by share/)
+├── .env.example           # Simplified configuration template
+├── Makefile               # Main entry point
+└── README.md              # (needs update)
+```
 
 ## Implementation Summary
 

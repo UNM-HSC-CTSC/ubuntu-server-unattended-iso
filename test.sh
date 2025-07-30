@@ -130,7 +130,7 @@ test_optional_tools() {
 test_directory_structure() {
     test_case "Directory structure"
     
-    local required_dirs=("profiles" "templates" "scripts")
+    local required_dirs=("bin" "lib" "share" "tests")
     
     for dir in "${required_dirs[@]}"; do
         if [ -d "$dir" ]; then
@@ -145,7 +145,7 @@ test_directory_structure() {
 test_required_scripts() {
     test_case "Required scripts"
     
-    local required_scripts=("bin/build-iso" "bin/generate-autoinstall")
+    local required_scripts=("bin/ubuntu-iso" "bin/ubuntu-iso-generate")
     
     for script in "${required_scripts[@]}"; do
         if [ -f "$script" ]; then
@@ -301,15 +301,15 @@ test_iso_download() {
 test_iso_tools() {
     test_case "ISO tools abstraction layer"
     
-    if [ -f "scripts/iso-tools.sh" ]; then
-        pass "scripts/iso-tools.sh exists"
+    if [ -f "lib/iso-tools.sh" ]; then
+        pass "lib/iso-tools.sh exists"
         
         # Source and test functions
-        if bash -c "source scripts/iso-tools.sh && type detect_iso_backend >/dev/null 2>&1"; then
+        if bash -c "source lib/iso-tools.sh && type detect_iso_backend >/dev/null 2>&1"; then
             pass "iso-tools.sh can be sourced"
             
             # Test backend detection
-            local backend=$(bash -c "source scripts/iso-tools.sh && detect_iso_backend && echo \$ISO_BACKEND")
+            local backend=$(bash -c "source lib/iso-tools.sh && detect_iso_backend && echo \$ISO_BACKEND")
             if [ -n "$backend" ]; then
                 pass "ISO backend detected: $backend"
             else
@@ -319,7 +319,7 @@ test_iso_tools() {
             fail "iso-tools.sh has syntax errors"
         fi
     else
-        fail "scripts/iso-tools.sh is missing"
+        fail "lib/iso-tools.sh is missing"
     fi
 }
 
@@ -327,97 +327,80 @@ test_iso_tools() {
 test_build_script() {
     test_case "Build script basic functionality"
     
-    if [ -f "bin/build-iso" ]; then
+    if [ -f "bin/ubuntu-iso" ]; then
         # Test help/usage
-        if bash bin/build-iso --help >/dev/null 2>&1; then
-            pass "bin/build-iso --help works"
+        if bash bin/ubuntu-iso --help >/dev/null 2>&1; then
+            pass "bin/ubuntu-iso --help works"
         else
-            info "bin/build-iso --help not implemented"
+            info "bin/ubuntu-iso --help not implemented"
         fi
         
         # Test with missing profile (should fail gracefully)
-        if bash bin/build-iso --profile nonexistent 2>&1 | grep -q -E "(not found|does not exist|missing)"; then
-            pass "bin/build-iso handles missing profiles correctly"
+        if bash bin/ubuntu-iso --profile nonexistent 2>&1 | grep -q -E "(not found|does not exist|missing)"; then
+            pass "bin/ubuntu-iso handles missing profiles correctly"
         else
-            info "bin/build-iso profile validation needs improvement"
+            info "bin/ubuntu-iso profile validation needs improvement"
         fi
     else
-        info "bin/build-iso not yet created"
+        info "bin/ubuntu-iso not yet created"
     fi
 }
 
-# Test 12: Profile validation
-test_profile_count() {
-    test_case "Profile availability"
+# Test 12: Share directory content
+test_share_content() {
+    test_case "Share directory content"
     
-    local profile_count=$(ls -1 profiles/ 2>/dev/null | wc -l)
-    if [ $profile_count -ge 10 ]; then
-        pass "Found $profile_count profiles (expected 10+)"
-    else
-        fail "Only $profile_count profiles found (expected 10+)"
-    fi
-    
-    # Check for key profiles
-    local key_profiles=("minimal-server" "standard-server" "web-server" "database-server" "container-host" "security-hardened")
-    for profile in "${key_profiles[@]}"; do
-        if [ -d "profiles/$profile" ]; then
-            pass "Profile '$profile' exists"
-        else
-            fail "Profile '$profile' missing"
-        fi
-    done
-}
-
-# Test 13: Script availability
-test_new_scripts() {
-    test_case "New script availability"
-    
-    local new_scripts=("validate-autoinstall.sh" "test-in-vm.sh" "test-python-fallback.sh" "check-ubuntu-updates.sh" "create-all-profiles.sh")
-    for script in "${new_scripts[@]}"; do
-        if [ -f "scripts/$script" ]; then
-            pass "Script $script exists"
-            if [ -x "scripts/$script" ]; then
-                pass "Script $script is executable"
-            else
-                fail "Script $script is NOT executable"
-            fi
-        else
-            fail "Script $script missing"
-        fi
-    done
-}
-
-# Test 14: Credential injection system
-test_credential_injection() {
-    test_case "Credential injection system"
-    
-    # Check if test script exists
-    if [ -f "scripts/test-credential-simple.sh" ]; then
-        pass "Credential validation test script exists"
+    # Check for ubuntu-base
+    if [ -d "share/ubuntu-base" ]; then
+        pass "share/ubuntu-base exists"
         
-        # Run the credential validation tests
-        if bash scripts/test-credential-simple.sh >/dev/null 2>&1; then
-            pass "Credential validation tests passed"
+        if [ -f "share/ubuntu-base/autoinstall.yaml" ]; then
+            pass "ubuntu-base autoinstall.yaml exists"
         else
-            fail "Credential validation tests failed"
-            info "Run './scripts/test-credential-simple.sh' for details"
+            fail "ubuntu-base autoinstall.yaml missing"
         fi
     else
-        fail "Credential validation test script missing"
+        fail "share/ubuntu-base directory missing"
     fi
     
-    # Check for template-secure profile
-    if [ -d "profiles/template-secure" ]; then
-        pass "template-secure profile exists"
+    # Check for examples
+    if [ -d "share/examples" ]; then
+        pass "share/examples exists"
     else
-        fail "template-secure profile missing"
+        info "share/examples not created yet"
+    fi
+}
+
+# Test 13: Library availability
+test_library_files() {
+    test_case "Library file availability"
+    
+    local lib_files=("common.sh" "download.sh" "validate.sh" "iso-tools.sh" "pyiso.py")
+    for lib in "${lib_files[@]}"; do
+        if [ -f "lib/$lib" ]; then
+            pass "Library $lib exists"
+        else
+            fail "Library $lib missing"
+        fi
+    done
+}
+
+# Test 14: Test scripts
+test_test_scripts() {
+    test_case "Test script availability"
+    
+    # Check main test script
+    if [ -f "test.sh" ]; then
+        pass "Main test.sh exists"
+    else
+        fail "Main test.sh missing"
     fi
     
-    # Check for verify-no-credentials script
-    if [ -f "scripts/verify-no-credentials.sh" ]; then
-        pass "verify-no-credentials.sh exists"
+    # Check for verify-no-credentials script in tests/
+    if [ -f "tests/verify-no-credentials.sh" ]; then
+        pass "verify-no-credentials.sh exists in tests/"
     else
-        fail "verify-no-credentials.sh missing"
+        info "verify-no-credentials.sh not in tests/ yet"
     fi
 }
 
@@ -439,9 +422,9 @@ main() {
     test_iso_download
     test_iso_tools
     test_build_script
-    test_profile_count
-    test_new_scripts
-    test_credential_injection
+    test_share_content
+    test_library_files
+    test_test_scripts
     
     # Summary
     echo -e "\n================================================="

@@ -1,67 +1,38 @@
-# Minimal Server Profile
+# Ubuntu Base Configuration
 
-Absolute minimum Ubuntu Server installation with only essential packages.
+This is the minimal base configuration for Ubuntu Server unattended installation.
 
-## Overview
+## Features
 
-This profile creates the smallest possible Ubuntu Server installation while maintaining:
-- Network connectivity
-- SSH access
-- Basic system tools
+- Basic DHCP networking
+- LVM storage layout
+- SSH server enabled
+- Essential system packages
+- System updates enabled
 
-## Configuration
+## Important Notes
 
-- **Hostname**: ubuntu-minimal
-- **Username**: ubuntu
-- **Password**: ubuntu (CHANGE THIS!)
-- **Network**: DHCP
-- **Storage**: LVM
-- **SSH**: Enabled with password authentication
+1. **Change default credentials** - The default username is `ubuntu` with password `ubuntu`. You MUST change these before use.
 
-## Installed Packages
+2. **Generate secure passwords**:
+   ```bash
+   openssl passwd -6 -stdin <<< "your-secure-password"
+   ```
 
-- openssh-server - Remote access
-- curl - URL data transfer
-- wget - Network downloader
-- nano - Text editor
-- net-tools - Network utilities
-- iputils-ping - Network diagnostics
+3. **Add SSH keys** - Uncomment and add your SSH public keys in the `late-commands` section for secure access.
 
-## Optimizations
+4. **Network interface** - The configuration assumes `eth0`. Adjust based on your hardware.
 
-- Snap packages removed
-- Multipath disabled
-- Minimal service footprint
-- No automatic updates
+## Usage
 
-## Use Cases
-
-- Container/Docker hosts
-- Embedded systems
-- Resource-constrained VMs
-- Base for custom installations
-- Testing environments
-
-## Resource Requirements
-
-- **RAM**: 512MB minimum (1GB recommended)
-- **Storage**: 2GB minimum
-- **CPU**: 1 core
-
-## Post-Installation
-
-After installation:
-1. Change the default password
-2. Configure static IP if needed
-3. Install only required packages
-4. Enable firewall if exposed to network
-
-## Building ISO
+Use this as a starting point with the interactive generator:
 
 ```bash
-./build-iso.sh --profile minimal-server
+ubuntu-iso-generate
 ```
 
-## Notes
+Or use directly with the build command:
 
-This profile prioritizes minimal footprint over features. For production servers, consider the standard-server or security-hardened profiles.
+```bash
+ubuntu-iso --autoinstall share/ubuntu-base/autoinstall.yaml
+```

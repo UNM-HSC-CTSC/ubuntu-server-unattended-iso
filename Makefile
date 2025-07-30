@@ -14,13 +14,13 @@ BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Directories
 BIN_DIR := bin
 LIB_DIR := lib
-SCRIPTS_DIR := scripts
-PROFILES_DIR := profiles
+SHARE_DIR := share
+TESTS_DIR := tests
 OUTPUT_DIR := output
-CACHE_DIR := downloads
+CACHE_DIR := cache
 
-# Default profile if not specified
-PROFILE ?= minimal-server
+# Default configuration
+AUTOINSTALL ?= share/ubuntu-base/autoinstall.yaml
 
 # Colors for output (respect NO_COLOR env var)
 ifndef NO_COLOR
@@ -43,13 +43,13 @@ help:
 	@echo "  make check          Quick dependency check"
 	@echo ""
 	@echo "$(YELLOW)Build:$(NC)"
-	@echo "  make build          Build ISO (PROFILE=minimal-server)"
-	@echo "  make build-all      Build all profiles"
-	@echo "  make list-profiles  List available profiles"
+	@echo "  make build          Build ISO with base configuration"
+	@echo "  make generate       Create custom autoinstall configuration"
+	@echo "  make list-examples  List example configurations"
 	@echo ""
 	@echo "$(YELLOW)Advanced:$(NC)"
-	@echo "  make generate       Interactive profile generator"
-	@echo "  make validate       Validate all profiles"
+	@echo "  make check-updates  Check for new Ubuntu releases"
+	@echo "  make validate       Validate configuration files"
 	@echo "  make clean          Remove build artifacts"
 	@echo "  make distclean      Remove all generated files"
 	@echo ""
@@ -126,36 +126,40 @@ check:
 # Build single ISO
 .PHONY: build
 build: check
-	@echo "$(BLUE)Building ISO for profile: $(PROFILE)$(NC)"
-	@if [ -x $(BIN_DIR)/build-iso ]; then \
-		$(BIN_DIR)/build-iso --profile $(PROFILE); \
+	@echo "$(BLUE)Building ISO with configuration: $(AUTOINSTALL)$(NC)"
+	@if [ -x $(BIN_DIR)/ubuntu-iso ]; then \
+		$(BIN_DIR)/ubuntu-iso --autoinstall $(AUTOINSTALL); \
 	else \
-		echo "$(RED)Error: build-iso script not found$(NC)"; \
+		echo "$(RED)Error: ubuntu-iso script not found$(NC)"; \
 		exit 1; \
 	fi
 
-# Build all profiles
-.PHONY: build-all
-build-all: check
-	@echo "$(BLUE)Building all profiles...$(NC)"
-	@if [ -x $(BIN_DIR)/build-all ]; then \
-		$(BIN_DIR)/build-all; \
+# Generate custom configuration
+.PHONY: generate
+generate:
+	@echo "$(BLUE)Starting interactive configuration generator...$(NC)"
+	@if [ -x $(BIN_DIR)/ubuntu-iso-generate ]; then \
+		$(BIN_DIR)/ubuntu-iso-generate; \
 	else \
-		echo "$(RED)Error: build-all script not found$(NC)"; \
+		echo "$(RED)Error: ubuntu-iso-generate script not found$(NC)"; \
 		exit 1; \
 	fi
 
-# List available profiles
-.PHONY: list-profiles
-list-profiles:
-	@echo "$(BLUE)Available profiles:$(NC)"
-	@for profile in $(PROFILES_DIR)/*/; do \
-		if [ -f "$$profile/autoinstall.yaml" ]; then \
-			name=$$(basename $$profile); \
-			desc=$$(grep -m1 "^# " $$profile/autoinstall.yaml 2>/dev/null | sed 's/^# //' || echo "No description"); \
-			printf "  %-20s %s\n" "$$name" "$$desc"; \
-		fi; \
-	done
+# List example configurations
+.PHONY: list-examples
+list-examples:
+	@echo "$(BLUE)Available example configurations:$(NC)"
+	@if [ -d $(SHARE_DIR)/examples ]; then \
+		for example in $(SHARE_DIR)/examples/*/; do \
+			if [ -f "$$example/autoinstall.yaml" ]; then \
+				name=$$(basename $$example); \
+				desc=$$(grep -m1 "^# " $$example/autoinstall.yaml 2>/dev/null | sed 's/^# //' || echo "No description"); \
+				printf "  %-20s %s\n" "$$name" "$$desc"; \
+			fi; \
+		done; \
+	else \
+		echo "  No examples found"; \
+	fi
 
 # Interactive profile generator
 .PHONY: generate

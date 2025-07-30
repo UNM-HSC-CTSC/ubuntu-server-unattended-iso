@@ -1,60 +1,61 @@
 #cloud-config
-# Minimal Ubuntu Server Installation
-# Absolute minimum packages for a functional server
+# Ubuntu Base Autoinstall Configuration
+# This is the minimal configuration required for an unattended Ubuntu Server installation
 
 version: 1
 
-# Locale and keyboard
+# Basic locale and keyboard settings
 locale: en_US.UTF-8
 keyboard:
   layout: us
   variant: ""
 
-# Network - DHCP on first interface
+# Network configuration - DHCP by default
 network:
   version: 2
   ethernets:
+    # This assumes the first ethernet interface
+    # Adjust the interface name based on your hardware
     eth0:
       dhcp4: true
       dhcp6: true
 
-# Storage - Simple LVM layout
+# Storage configuration - use entire disk with LVM
 storage:
   layout:
     name: lvm
 
-# Identity configuration
+# User account configuration
+# IMPORTANT: Change these values before using
 identity:
-  hostname: ubuntu-minimal
+  hostname: ubuntu-server
   username: ubuntu
   # Password is 'ubuntu' - CHANGE THIS!
-  password: "$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0"
+  # To generate a new password hash, use:
+  # openssl passwd -6 -stdin <<< "your-password"
+  password: "$6$rounds=4096$J86aZz0Q$To16RGzWJku0swXC3QmvHpJeTT2gJMcjcqgsV4DtiSq0JT7JZhHGFz7KP0K4X0vDnu281sYdYSmm47Q8kXgtm0"
 
-# SSH configuration
+# SSH server configuration
 ssh:
   install-server: true
   allow-pw: true
 
-# Minimal package selection
+# Essential packages only
 packages:
   - openssh-server
   - curl
   - wget
-  - nano
+  - vim
+  - htop
   - net-tools
-  - iputils-ping
 
 # System updates
 package_update: true
-package_upgrade: false
-package_reboot_if_required: false
+package_upgrade: true
 
 # Timezone
 timezone: UTC
 
-# Disable unnecessary services for minimal install
-late-commands:
-  - curtin in-target --target=/target -- systemctl disable multipathd.service || true
-  - curtin in-target --target=/target -- systemctl disable snapd.service || true  
-  - curtin in-target --target=/target -- apt-get remove --purge -y snapd || true
-  - echo "Minimal Ubuntu Server" > /target/etc/motd
+# Optional: Add your SSH keys here
+# late-commands:
+#   - echo 'ssh-rsa YOUR_SSH_PUBLIC_KEY user@host' >> /target/home/ubuntu/.ssh/authorized_keys
