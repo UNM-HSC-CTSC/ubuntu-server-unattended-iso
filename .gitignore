@@ -14,6 +14,9 @@ claude/.claude/
 *.iso
 downloads/
 output/
+cache/
+input/*
+!input/README.md
 
 # Ignore OS and editor files
 .DS_Store

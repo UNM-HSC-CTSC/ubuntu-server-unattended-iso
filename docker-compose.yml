@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ubuntu-iso-builder:latest
+    container_name: ubuntu-iso-builder
+    volumes:
+      # Input directory for custom autoinstall.yaml files
+      - ./input:/input:ro
+      # Output directory for generated ISOs
+      - ./output:/output
+      # Cache directory for downloaded Ubuntu ISOs
+      - ./cache:/cache
+      # Mount the entire project for development (optional)
+      # - .:/app
+    environment:
+      # Load environment variables from .env file
+      - UBUNTU_VERSION=${UBUNTU_VERSION:-24.04.2}
+      - UBUNTU_MIRROR=${UBUNTU_MIRROR:-https://releases.ubuntu.com}
+      - CACHE_DIR=/cache
+      - OUTPUT_DIR=/output
+      - NO_COLOR=${NO_COLOR:-}
+    # Run as current user to avoid permission issues (Linux only)
+    # user: "${UID:-1000}:${GID:-1000}"
+    stdin_open: true
+    tty: true
+    # Default command - can be overridden with docker-compose run
+    command: ["ubuntu-iso", "--help"]
+
+  # Interactive generator service
+  generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ubuntu-iso-builder:latest
+    container_name: ubuntu-iso-generator
+    volumes:
+      - ./output:/output
+    environment:
+      - OUTPUT_DIR=/output
+    stdin_open: true
+    tty: true
+    command: ["ubuntu-iso-generate"]
+
+# Define named volumes (optional, for persistent cache)
+volumes:
+  cache:
+    driver: local

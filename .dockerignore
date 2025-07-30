@@ -1,0 +1,48 @@
+# Ignore git files
+.git
+.gitignore
+.github
+
+# Ignore documentation that's not needed in container
+*.md
+!README.md
+docs/
+
+# Ignore output and cache directories
+output/
+cache/
+downloads/
+input/
+
+# Ignore ISO files
+*.iso
+
+# Ignore environment files
+.env
+.env.*
+!.env.example
+
+# Ignore subiquity clone
+.subiquity/
+
+# Ignore Claude-specific files
+claude/
+
+# Ignore editor files
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore test coverage
+.coverage
+htmlcov/
+
+# Ignore temporary files
+*.tmp
+*.bak
+*~

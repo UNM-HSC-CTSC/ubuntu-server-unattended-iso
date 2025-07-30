@@ -19,17 +19,63 @@ A professional command-line tool for creating unattended Ubuntu Server installat
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker (Recommended - No Dependencies)
+
+#### Linux/macOS:
+
+```bash
+# Clone the repository
+git clone https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso.git
+cd ubuntu-server-unattended-iso
+
+# Build ISO using Docker (automatically builds container on first run)
+./docker-build.sh
+
+# Or with a custom configuration
+mkdir -p input
+cp my-autoinstall.yaml input/
+./docker-build.sh -- --autoinstall /input/my-autoinstall.yaml
+
+# Run interactive generator
+./docker-build.sh --generate
+```
+
+#### Windows:
+
+```powershell
+# Clone the repository
+git clone https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso.git
+cd ubuntu-server-unattended-iso
+
+# Build ISO using Docker (PowerShell)
+.\docker-build.ps1
+
+# Or using batch file
+docker-build.bat
+
+# With custom configuration
+Copy-Item my-autoinstall.yaml input\
+.\docker-build.ps1 -- --autoinstall /input/my-autoinstall.yaml
+
+# Run interactive generator
+.\docker-build.ps1 -Generate
+```
+
+**Note**: Ensure Docker Desktop is installed and set to use Linux containers.
+
+### Option 2: Local Installation
+
+#### Prerequisites
 
 ```bash
 # Core tools (usually pre-installed on Linux)
 bash, wget, curl, python3
 
 # Python packages
-pip3 install pyyaml
+pip3 install pyyaml yamllint
 ```
 
-### Installation
+#### Installation
 
 ```bash
 # Clone the repository
@@ -107,6 +153,60 @@ CACHE_DIR=./cache
 OUTPUT_DIR=./output
 ```
 
+## Docker Usage
+
+The Docker setup provides a consistent build environment without requiring local dependencies.
+
+### Linux/macOS:
+
+```bash
+# Build the Docker image (if needed)
+./docker-build.sh --build
+
+# Build ISO with default configuration
+./docker-build.sh
+
+# Use custom autoinstall.yaml from input/ directory
+./docker-build.sh -- --autoinstall /input/my-config.yaml
+
+# Run interactive configuration generator
+./docker-build.sh --generate
+
+# Start a shell in the container for debugging
+./docker-build.sh --shell
+
+# Specify Ubuntu version
+./docker-build.sh -- --version 22.04.5 --autoinstall /input/my-config.yaml
+```
+
+### Windows (PowerShell):
+
+```powershell
+# Build the Docker image (if needed)
+.\docker-build.ps1 -Build
+
+# Build ISO with default configuration
+.\docker-build.ps1
+
+# Use custom autoinstall.yaml from input\ directory
+.\docker-build.ps1 -- --autoinstall /input/my-config.yaml
+
+# Run interactive configuration generator
+.\docker-build.ps1 -Generate
+
+# Start a shell in the container for debugging
+.\docker-build.ps1 -Shell
+
+# Specify Ubuntu version
+.\docker-build.ps1 -- --version 22.04.5 --autoinstall /input/my-config.yaml
+```
+
+### Docker Volumes
+
+- `./input/` - Place your custom autoinstall.yaml files here
+- `./output/` - Generated ISOs will be saved here
+- `./cache/` - Downloaded Ubuntu ISOs are cached here
+
 ## Project Structure
 
 ```
@@ -125,7 +225,10 @@ ubuntu-server-unattended-iso/
 │   ├── ubuntu-base/       # Base configuration
 │   └── examples/          # Example configurations
 ├── tests/                  # Test scripts
-└── .github/               # GitHub Actions workflows
+├── docker-build.sh        # Docker wrapper script
+├── docker-compose.yml     # Docker Compose configuration
+├── Dockerfile            # Docker image definition
+└── .github/              # GitHub Actions workflows
 ```
 
 ## Testing
