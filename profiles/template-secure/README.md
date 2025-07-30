@@ -51,15 +51,15 @@ export ROOT_PASSWORD="R00tP@ssw0rd456!"
 ./build-iso.sh --profile template-secure
 ```
 
-### GitLab CI/CD
+### GitHub Actions
 
-Configure the following as protected/masked variables in GitLab:
-- `DEFAULT_USERNAME` (protected)
-- `DEFAULT_USER_PASSWORD` (masked)
-- `DEFAULT_USER_SSH_KEY` (protected)
-- `ROOT_PASSWORD` (masked)
+Configure the following as encrypted secrets in your GitHub repository:
+- `DEFAULT_USERNAME` (repository secret)
+- `DEFAULT_USER_PASSWORD` (repository secret)
+- `DEFAULT_USER_SSH_KEY` (repository secret)
+- `ROOT_PASSWORD` (repository secret)
 
-Then trigger the build manually or set `BUILD_SECURE_TEMPLATE=true`.
+Then trigger the workflow manually or set the environment variable `BUILD_SECURE_TEMPLATE=true`.
 
 ## Security Features
 

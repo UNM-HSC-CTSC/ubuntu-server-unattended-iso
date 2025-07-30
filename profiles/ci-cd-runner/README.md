@@ -1,6 +1,6 @@
 # CI/CD Runner Profile
 
-Multi-platform CI/CD runner supporting GitLab, GitHub Actions, and Jenkins.
+Multi-platform CI/CD runner optimized for GitHub Actions with support for Docker and Jenkins.
 
 ## Installed Components
 
@@ -11,8 +11,8 @@ Multi-platform CI/CD runner supporting GitLab, GitHub Actions, and Jenkins.
 - Go, Rust, Java (11 & 17)
 
 ### CI/CD Runners
-- GitLab Runner (latest)
 - GitHub Actions runner ready
+- Docker-in-Docker support
 - Jenkins agent capable
 
 ### Container Support
@@ -21,11 +21,6 @@ Multi-platform CI/CD runner supporting GitLab, GitHub Actions, and Jenkins.
 - Runner user in docker group
 
 ## Post-Installation Setup
-
-### GitLab Runner Registration
-```bash
-sudo /opt/runners/register-gitlab-runner.sh https://gitlab.com YOUR-REGISTRATION-TOKEN
-```
 
 ### GitHub Actions Runner
 ```bash

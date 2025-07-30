@@ -923,7 +923,7 @@ generate_ci_cd_runner_profile() {
     cat > "$PROFILES_DIR/ci-cd-runner/autoinstall.yaml" << 'EOF'
 #cloud-config
 # CI/CD Runner Installation
-# GitLab Runner, Jenkins agent, and GitHub Actions runner ready
+# GitHub Actions runner, Docker-in-Docker, and Jenkins agent ready
 
 version: 1
 
@@ -1017,12 +1017,10 @@ late-commands:
   - curtin in-target --target=/target -- mkdir -p /opt/runners
   - curtin in-target --target=/target -- chown runner:runner /opt/runners
   
-  # Download GitLab Runner
+  # Prepare for GitHub Actions runner
   - |
-    curl -L --output /target/usr/local/bin/gitlab-runner \
-      "https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-linux-amd64"
-  - curtin in-target --target=/target -- chmod +x /usr/local/bin/gitlab-runner
-  - curtin in-target --target=/target -- gitlab-runner install --user=runner --working-directory=/opt/runners
+    mkdir -p /target/opt/actions-runner
+  - curtin in-target --target=/target -- chown runner:runner /opt/actions-runner
   
   # Prepare for GitHub Actions runner
   - curtin in-target --target=/target -- mkdir -p /opt/actions-runner
@@ -1045,35 +1043,30 @@ late-commands:
   # Increase file watchers for builds
   - echo "fs.inotify.max_user_watches=524288" >> /target/etc/sysctl.d/99-runners.conf
   
-  # Create runner registration script
+  # Create GitHub Actions runner setup script
   - |
-    cat <<'SCRIPT' > /target/opt/runners/register-gitlab-runner.sh
+    cat <<'SCRIPT' > /target/opt/runners/setup-github-runner.sh
     #!/bin/bash
-    echo "Register GitLab Runner"
-    echo "Usage: $0 <gitlab-url> <registration-token>"
-    gitlab-runner register \
-      --non-interactive \
-      --url "$1" \
-      --registration-token "$2" \
-      --executor "docker" \
-      --docker-image alpine:latest \
-      --description "docker-runner" \
-      --tag-list "docker,aws" \
-      --run-untagged="true" \
-      --locked="false" \
-      --access-level="not_protected"
+    echo "Setup GitHub Actions Runner"
+    echo "Usage: $0 <github-url> <runner-token>"
+    cd /opt/actions-runner
+    curl -o actions-runner-linux-x64.tar.gz -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz
+    tar xzf actions-runner-linux-x64.tar.gz
+    ./config.sh --url "$1" --token "$2" --unattended
+    sudo ./svc.sh install
+    sudo ./svc.sh start
     SCRIPT
-  - curtin in-target --target=/target -- chmod +x /opt/runners/register-gitlab-runner.sh
+  - curtin in-target --target=/target -- chmod +x /opt/runners/setup-github-runner.sh
   
   # Enable services
   - curtin in-target --target=/target -- systemctl enable docker
-  - curtin in-target --target=/target -- systemctl enable gitlab-runner
+  # Docker is the main service for CI/CD
 EOF
 
     cat > "$PROFILES_DIR/ci-cd-runner/README.md" << 'EOF'
 # CI/CD Runner Profile
 
-Multi-platform CI/CD runner supporting GitLab, GitHub Actions, and Jenkins.
+Multi-platform CI/CD runner optimized for GitHub Actions with Docker and Jenkins support.
 
 ## Installed Components
 
@@ -1084,7 +1077,7 @@ Multi-platform CI/CD runner supporting GitLab, GitHub Actions, and Jenkins.
 - Go, Rust, Java (11 & 17)
 
 ### CI/CD Runners
-- GitLab Runner (latest)
+- GitHub Actions runner ready
 - GitHub Actions runner ready
 - Jenkins agent capable
 
@@ -1095,9 +1088,9 @@ Multi-platform CI/CD runner supporting GitLab, GitHub Actions, and Jenkins.
 
 ## Post-Installation Setup
 
-### GitLab Runner Registration
+### GitHub Actions Runner Setup
 ```bash
-sudo /opt/runners/register-gitlab-runner.sh https://gitlab.com YOUR-REGISTRATION-TOKEN
+sudo /opt/runners/setup-github-runner.sh https://github.com/YOUR-ORG YOUR-RUNNER-TOKEN
 ```
 
 ### GitHub Actions Runner

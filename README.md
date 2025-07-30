@@ -108,13 +108,12 @@ ubuntu-server-unattended-iso/
 │   ├── container-host/     # Docker/Kubernetes ready
 │   ├── security-hardened/  # CIS benchmark compliant
 │   ├── hyper-v-optimized/  # Hyper-V guest tools
-│   ├── ci-cd-runner/       # GitLab/GitHub runner
+│   ├── ci-cd-runner/       # GitHub Actions runner
 │   ├── monitoring-server/  # Prometheus & Grafana
 │   └── template-secure/    # Secure template with credentials
 ├── templates/              # Configuration templates
 │   ├── autoinstall-base.yaml    # Base template
 │   └── snippets/           # Reusable configuration snippets
-└── .gitlab-ci.yml         # CI/CD pipeline configuration
 
 Note: Symlinks at root (build-iso.sh, etc.) provide backward compatibility
 ```
@@ -162,7 +161,7 @@ Note: Symlinks at root (build-iso.sh, etc.) provide backward compatibility
 - Enhanced session mode support
 
 #### ci-cd-runner
-- GitLab Runner pre-configured
+- GitHub Actions runner ready
 - Docker-in-Docker support
 - Build tools and dependencies
 
