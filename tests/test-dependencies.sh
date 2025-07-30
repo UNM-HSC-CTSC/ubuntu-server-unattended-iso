@@ -116,9 +116,9 @@ done
 # Test file permissions
 echo -e "\nChecking script permissions..."
 SCRIPTS=(
-    "bin/build-iso"
-    "bin/generate-autoinstall"
-    "bin/build-all"
+    "bin/ubuntu-iso"
+    "bin/ubuntu-iso-generate"
+    "bin/ubuntu-iso-check-updates"
 )
 
 for script in "${SCRIPTS[@]}"; do

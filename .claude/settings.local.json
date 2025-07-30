@@ -84,7 +84,8 @@
       "Bash(git config:*)",
       "Bash(gh run view:*)",
       "Bash(mv:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(gh run list:*)"
     ],
     "deny": []
   }
