@@ -55,10 +55,10 @@ ubuntu-iso --autoinstall share/ubuntu-base/autoinstall.yaml
 ubuntu-iso --autoinstall my-config.yaml
 
 # Specify Ubuntu version (LTS recommended)
-ubuntu-iso --version 22.04.5 --autoinstall my-config.yaml
-
-# Use latest 24.04 LTS
 ubuntu-iso --version 24.04.2 --autoinstall my-config.yaml
+
+# Use previous LTS version
+ubuntu-iso --version 22.04.5 --autoinstall my-config.yaml
 
 # Use any Ubuntu version (including non-LTS)
 ubuntu-iso --version 23.10.1 --autoinstall my-config.yaml
@@ -95,7 +95,7 @@ Create a `.env` file based on `.env.example`:
 
 ```bash
 # Ubuntu version to download
-UBUNTU_VERSION=22.04.5
+UBUNTU_VERSION=24.04.2
 
 # Ubuntu mirror (optional)
 UBUNTU_MIRROR=https://releases.ubuntu.com

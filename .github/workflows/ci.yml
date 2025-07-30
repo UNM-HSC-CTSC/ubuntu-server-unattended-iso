@@ -10,7 +10,7 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 env:
-  UBUNTU_VERSION: "22.04.5"  # Latest 22.04 LTS
+  UBUNTU_VERSION: "24.04.2"  # Latest LTS
   UBUNTU_MIRROR: "https://releases.ubuntu.com"
 
 jobs:

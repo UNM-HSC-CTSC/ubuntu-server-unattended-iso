@@ -17,9 +17,9 @@ fi
 
 # Default values
 PROFILE=""
-UBUNTU_VERSION="${UBUNTU_VERSION:-22.04.3}"
+UBUNTU_VERSION="${UBUNTU_VERSION:-24.04.2}"
 UBUNTU_MIRROR="${UBUNTU_MIRROR:-https://releases.ubuntu.com}"
-CACHE_DIR="${CACHE_DIR:-${SCRIPT_DIR}/downloads}"
+CACHE_DIR="${CACHE_DIR:-${SCRIPT_DIR}/cache}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output}"
 NO_CACHE=false
 SKIP_VALIDATION=false
@@ -69,7 +69,7 @@ For template-secure profile, set these environment variables:
 
 Examples:
     $0 --profile example-minimal
-    $0 --profile web-server --ubuntu-version 22.04.3
+    $0 --profile web-server --ubuntu-version 24.04.2
     $0 --profile database --no-cache
 
     # With credentials:

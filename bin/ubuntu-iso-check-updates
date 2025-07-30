@@ -13,7 +13,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CACHE_FILE="$PROJECT_DIR/.ubuntu-versions-cache"
 CACHE_DURATION=86400  # 24 hours in seconds
 RELEASES_URL="https://releases.ubuntu.com/"
-CURRENT_VERSION="${UBUNTU_VERSION:-22.04.5}"
+CURRENT_VERSION="${UBUNTU_VERSION:-24.04.2}"
 CHECK_LTS_ONLY="${CHECK_LTS_ONLY:-true}"
 NOTIFY="${NOTIFY:-true}"
 
@@ -59,7 +59,7 @@ Usage: $0 [options]
 Checks for Ubuntu Server version updates.
 
 Options:
-    --current VERSION    Current Ubuntu version (default: from .env or 22.04.3)
+    --current VERSION    Current Ubuntu version (default: from .env or 24.04.2)
     --all               Check all releases, not just LTS
     --no-cache          Force fresh check
     --quiet             Suppress notifications
@@ -354,7 +354,7 @@ main() {
     # Load current version from .env if not specified
     if [ -f "$PROJECT_DIR/.env" ] && [ -z "$CURRENT_VERSION" ]; then
         source "$PROJECT_DIR/.env" 2>/dev/null || true
-        CURRENT_VERSION="${UBUNTU_VERSION:-22.04.5}"
+        CURRENT_VERSION="${UBUNTU_VERSION:-24.04.2}"
     fi
     
     # Check for updates

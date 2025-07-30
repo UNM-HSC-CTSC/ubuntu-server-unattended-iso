@@ -11,7 +11,7 @@ LIB_DIR="${SCRIPT_DIR}/lib"
 SHARE_DIR="${SCRIPT_DIR}/share"
 
 # Default values - can be overridden by environment or .env file
-UBUNTU_VERSION="${UBUNTU_VERSION:-22.04.5}"
+UBUNTU_VERSION="${UBUNTU_VERSION:-24.04.2}"
 UBUNTU_MIRROR="${UBUNTU_MIRROR:-https://releases.ubuntu.com}"
 CACHE_DIR="${CACHE_DIR:-${SCRIPT_DIR}/cache}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output}"
