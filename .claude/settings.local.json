@@ -81,7 +81,8 @@
       "Bash(bin/build-iso:*)",
       "Bash(diff:*)",
       "Bash(git rm:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": []
   }

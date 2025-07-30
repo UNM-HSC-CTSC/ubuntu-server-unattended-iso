@@ -14,7 +14,7 @@ A professional GitHub Actions-powered tool for creating unattended Ubuntu Server
 - **Interactive Generator** - Wizard to create custom autoinstall.yaml configurations
 - **VM Testing Framework** - Test ISOs in virtual machines (Hyper-V, QEMU/KVM)
 - **GitHub Actions CI/CD** - Automated building, testing, and releasing of ISOs
-- **GitHub CLI Integration** - Streamlined workflow and release management
+- **GitHub CLI Integration** - Monitor CI/CD workflows and project management
 - **Ubuntu Update Checker** - Stay informed about new Ubuntu releases
 - **Native Tools Only** - No external dependencies required
 - **Python Fallback** - Works in restricted environments (Docker, CI/CD)
@@ -23,30 +23,49 @@ A professional GitHub Actions-powered tool for creating unattended Ubuntu Server
 
 ### Prerequisites
 
-This project uses native Linux tools that are typically pre-installed:
+#### System Requirements
+- **OS**: Linux (Ubuntu/Debian recommended)
+- **Python**: 3.6 or higher
+- **Storage**: 5GB free space (for ISO downloads and builds)
 
+#### Required Dependencies
 ```bash
-# Required tools (usually pre-installed)
-mount, umount, dd, python3, wget, curl
+# Core tools (usually pre-installed on Linux)
+bash, wget, curl, python3, mount, umount, dd
 
-# Optional (for better performance and GitHub integration)
-sudo apt-get install -y genisoimage python3-yaml
+# Python packages (for YAML validation)
+pyyaml
+```
 
-# Install GitHub CLI (included in make install)
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-sudo apt update && sudo apt install gh
+#### Quick Install (Ubuntu/Debian)
+```bash
+# Option 1: Use the Makefile (recommended)
+make install
+
+# Option 2: Manual installation
+sudo apt-get update
+sudo apt-get install -y wget curl python3 python3-pip make genisoimage
+pip3 install -r requirements.txt
+
+# Option 3: Minimal installation
+sudo apt-get install -y python3 wget curl
+```
+
+#### Verify Dependencies
+```bash
+# Check if all dependencies are installed
+./scripts/test-dependencies.sh
 ```
 
 **Note**: The project automatically detects available tools and uses:
 1. Native `mount`/`umount` for ISO extraction (preferred)
 2. Python fallback methods if mount is unavailable
-3. `genisoimage`/`mkisofs` for ISO creation (optional)
+3. `genisoimage`/`mkisofs` for ISO creation (optional but recommended)
 
-### Quick Start (30 seconds)
+### Quick Start (2 minutes)
 
 ```bash
-# Clone and setup
+# Clone the repository
 git clone https://github.com/jwylesUNM/ubuntu-server-unattended-iso.git
 cd ubuntu-server-unattended-iso
 
@@ -54,12 +73,11 @@ cd ubuntu-server-unattended-iso
 gh repo clone jwylesUNM/ubuntu-server-unattended-iso
 cd ubuntu-server-unattended-iso
 
-# One-time setup
-make install
-
-# Build your first ISO
+# Build your first ISO (Ubuntu will be downloaded automatically)
 make build PROFILE=minimal-server
-# ISO will be in output/
+
+# Your custom ISO is now in output/
+ls -la output/*.iso
 ```
 
 ### Alternative Methods
@@ -75,10 +93,11 @@ make build PROFILE=minimal-server
    # or: ./bin/generate-autoinstall
    ```
 
-3. **Build all profiles:**
+3. **Build with different profile:**
    ```bash
-   make build-all
-   # or: ./bin/build-all
+   make build PROFILE=web-server
+   make build PROFILE=database-server
+   # See profiles/ directory for all options
    ```
 
 ## 📁 Project Structure
@@ -268,25 +287,31 @@ Options:
 ./scripts/check-ubuntu-updates.sh --compare 22.04.3
 ```
 
-## 📦 Downloading ISOs
+## 📦 Building Your ISO
 
-### ISO Naming Convention
+### Quick Build (2 minutes)
 
-ISOs are named: `{profile-name}-ubuntu-{version}-{date}.iso`
+```bash
+# Build with default minimal profile
+make build
 
-Example: `minimal-server-ubuntu-22.04.3-20240115.iso`
+# Build with a specific profile
+make build PROFILE=web-server
 
-### From GitHub Releases
+# Or use the script directly
+./bin/build-iso --profile minimal-server
+```
 
-1. Navigate to [Releases](../../releases)
-2. Download the ISO for your desired profile
-3. Write to USB or use with virtualization
+### ISO Output
 
-### From GitHub Actions Artifacts
+Your ISO will be created in the `output/` directory:
+- Filename: `{profile-name}-ubuntu-{version}-{date}.iso`
+- Example: `minimal-server-ubuntu-22.04.3-20240115.iso`
+- Size: ~2GB (same as official Ubuntu Server ISO)
 
-1. Go to [Actions](../../actions)
-2. Click on a successful workflow run
-3. Download artifacts containing ISOs
+### First Build Note
+
+The first build will download the Ubuntu Server ISO (~2GB). This is cached in `downloads/` for future builds.
 
 ## 🧪 Testing
 
