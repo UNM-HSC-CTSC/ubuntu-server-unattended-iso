@@ -42,15 +42,15 @@ fail() {
 echo "Credential Validation Test Suite (Simplified)"
 echo "============================================"
 
-# Test 1: Check that build-iso.sh exists and has credential validation
+# Test 1: Check that bin/build-iso exists and has credential validation
 echo -e "\nTest 1: Validation functions exist"
-if grep -q "validate_credentials" "$PROJECT_DIR/build-iso.sh"; then
+if grep -q "validate_credentials" "$PROJECT_DIR/bin/build-iso"; then
     pass "validate_credentials function exists"
 else
     fail "validate_credentials function missing"
 fi
 
-if grep -q "validate_password_complexity" "$PROJECT_DIR/build-iso.sh"; then
+if grep -q "validate_password_complexity" "$PROJECT_DIR/bin/build-iso"; then
     pass "validate_password_complexity function exists"
 else
     fail "validate_password_complexity function missing"
@@ -75,7 +75,7 @@ fi
 
 # Test 3: Check that inject_autoinstall calls validate_credentials for template-secure
 echo -e "\nTest 3: Credential validation integration"
-if grep -A5 'PROFILE.*template-secure' "$PROJECT_DIR/build-iso.sh" | grep -q "validate_credentials"; then
+if grep -A5 'PROFILE.*template-secure' "$PROJECT_DIR/bin/build-iso" | grep -q "validate_credentials"; then
     pass "Credential validation called for template-secure"
 else
     fail "Credential validation not called for template-secure"
@@ -83,27 +83,27 @@ fi
 
 # Test 4: Check secure cleanup
 echo -e "\nTest 4: Secure cleanup"
-if grep -q "secure_cleanup" "$PROJECT_DIR/build-iso.sh"; then
+if grep -q "secure_cleanup" "$PROJECT_DIR/bin/build-iso"; then
     pass "secure_cleanup function exists"
 else
     fail "secure_cleanup function missing"
 fi
 
-if grep -q "shred.*-n 3" "$PROJECT_DIR/build-iso.sh"; then
+if grep -q "shred.*-n 3" "$PROJECT_DIR/bin/build-iso"; then
     pass "Uses secure shred for deletion"
 else
     fail "Missing secure shred"
 fi
 
-if grep -q "unset.*PASSWORD" "$PROJECT_DIR/build-iso.sh"; then
+if grep -q "unset.*PASSWORD" "$PROJECT_DIR/bin/build-iso"; then
     pass "Clears password variables"
 else
     fail "Missing password clearing"
 fi
 
-# Test 5: Check build-iso.sh help mentions credential variables
+# Test 5: Check bin/build-iso help mentions credential variables
 echo -e "\nTest 5: Documentation"
-if "$PROJECT_DIR/build-iso.sh" --help 2>&1 | grep -q "DEFAULT_USERNAME"; then
+if "$PROJECT_DIR/bin/build-iso" --help 2>&1 | grep -q "DEFAULT_USERNAME"; then
     pass "Help mentions DEFAULT_USERNAME"
 else
     fail "Help missing DEFAULT_USERNAME"

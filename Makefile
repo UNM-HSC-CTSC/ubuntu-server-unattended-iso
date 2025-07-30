@@ -129,8 +129,6 @@ build: check
 	@echo "$(BLUE)Building ISO for profile: $(PROFILE)$(NC)"
 	@if [ -x $(BIN_DIR)/build-iso ]; then \
 		$(BIN_DIR)/build-iso --profile $(PROFILE); \
-	elif [ -x build-iso.sh ]; then \
-		./build-iso.sh --profile $(PROFILE); \
 	else \
 		echo "$(RED)Error: build-iso script not found$(NC)"; \
 		exit 1; \
@@ -142,8 +140,6 @@ build-all: check
 	@echo "$(BLUE)Building all profiles...$(NC)"
 	@if [ -x $(BIN_DIR)/build-all ]; then \
 		$(BIN_DIR)/build-all; \
-	elif [ -x build-all.sh ]; then \
-		./build-all.sh; \
 	else \
 		echo "$(RED)Error: build-all script not found$(NC)"; \
 		exit 1; \
@@ -167,8 +163,6 @@ generate:
 	@echo "$(BLUE)Starting interactive profile generator...$(NC)"
 	@if [ -x $(BIN_DIR)/generate-autoinstall ]; then \
 		$(BIN_DIR)/generate-autoinstall; \
-	elif [ -x generate-autoinstall.sh ]; then \
-		./generate-autoinstall.sh; \
 	else \
 		echo "$(RED)Error: generate-autoinstall script not found$(NC)"; \
 		exit 1; \

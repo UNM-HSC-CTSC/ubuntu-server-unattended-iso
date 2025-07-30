@@ -23,7 +23,7 @@ The Ubuntu Server Unattended ISO Builder is fully implemented with all planned f
 ### Core Components
 
 #### 1. Main Scripts
-- **build-iso.sh**: Primary ISO builder with validation integration
+- **bin/build-iso**: Primary ISO builder with validation integration
   - Profile validation
   - Autoinstall validation (with --skip-validation option)
   - ISO download with caching
@@ -31,7 +31,7 @@ The Ubuntu Server Unattended ISO Builder is fully implemented with all planned f
   - Autoinstall injection
   - ISO repackaging
 
-- **generate-autoinstall.sh**: Interactive profile generator (482 lines)
+- **bin/generate-autoinstall**: Interactive profile generator (482 lines)
   - Guided wizard interface
   - Network configuration (DHCP/static)
   - User and SSH key setup
@@ -39,7 +39,7 @@ The Ubuntu Server Unattended ISO Builder is fully implemented with all planned f
   - Package selection
   - Security configuration
 
-- **build-all.sh**: Batch profile builder
+- **bin/build-all**: Batch profile builder
   - Iterates through all profiles
   - Provides summary statistics
   - Handles failures gracefully
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: ./build-all.sh
+      - run: ./bin/build-all
       - uses: actions/upload-artifact@v3
         with:
           path: output/*.iso
@@ -234,17 +234,17 @@ jobs:
 2. Add autoinstall.yaml with #cloud-config header
 3. Include comprehensive README.md
 4. Validate: `./scripts/validate-autoinstall.sh profiles/new-profile/autoinstall.yaml`
-5. Test: `./build-iso.sh --profile new-profile`
+5. Test: `./bin/build-iso --profile new-profile`
 6. Document in main README.md
 
 ### Updating Ubuntu Versions
 1. Check for updates: `./scripts/check-ubuntu-updates.sh`
 2. Update .env: `UBUNTU_VERSION=24.04.1`
-3. Test all profiles: `./build-all.sh`
+3. Test all profiles: `./bin/build-all`
 4. Update documentation
 
 ### Debugging Issues
-1. Enable verbose mode: `VERBOSE=1 ./build-iso.sh ...`
+1. Enable verbose mode: `VERBOSE=1 ./bin/build-iso ...`
 2. Check specific backend: `./scripts/iso-tools.sh`
 3. Validate profiles: `./scripts/validate-autoinstall.sh ...`
 4. Test in VM: `./scripts/test-in-vm.sh ...`

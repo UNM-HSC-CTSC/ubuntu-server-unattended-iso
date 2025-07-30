@@ -145,7 +145,7 @@ test_directory_structure() {
 test_required_scripts() {
     test_case "Required scripts"
     
-    local required_scripts=("build-iso.sh" "generate-autoinstall.sh")
+    local required_scripts=("bin/build-iso" "bin/generate-autoinstall")
     
     for script in "${required_scripts[@]}"; do
         if [ -f "$script" ]; then
@@ -327,22 +327,22 @@ test_iso_tools() {
 test_build_script() {
     test_case "Build script basic functionality"
     
-    if [ -f "build-iso.sh" ]; then
+    if [ -f "bin/build-iso" ]; then
         # Test help/usage
-        if bash build-iso.sh --help >/dev/null 2>&1; then
-            pass "build-iso.sh --help works"
+        if bash bin/build-iso --help >/dev/null 2>&1; then
+            pass "bin/build-iso --help works"
         else
-            info "build-iso.sh --help not implemented"
+            info "bin/build-iso --help not implemented"
         fi
         
         # Test with missing profile (should fail gracefully)
-        if bash build-iso.sh --profile nonexistent 2>&1 | grep -q -E "(not found|does not exist|missing)"; then
-            pass "build-iso.sh handles missing profiles correctly"
+        if bash bin/build-iso --profile nonexistent 2>&1 | grep -q -E "(not found|does not exist|missing)"; then
+            pass "bin/build-iso handles missing profiles correctly"
         else
-            info "build-iso.sh profile validation needs improvement"
+            info "bin/build-iso profile validation needs improvement"
         fi
     else
-        info "build-iso.sh not yet created"
+        info "bin/build-iso not yet created"
     fi
 }
 

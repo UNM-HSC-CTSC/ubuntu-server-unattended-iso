@@ -64,21 +64,21 @@ make build PROFILE=minimal-server
 
 ### Alternative Methods
 
-1. **Direct script usage (backward compatible):**
+1. **Direct script usage:**
    ```bash
-   ./build-iso.sh --profile minimal-server
+   ./bin/build-iso --profile minimal-server
    ```
 
 2. **Create a custom profile:**
    ```bash
    make generate
-   # or: ./generate-autoinstall.sh
+   # or: ./bin/generate-autoinstall
    ```
 
 3. **Build all profiles:**
    ```bash
    make build-all
-   # or: ./build-all.sh
+   # or: ./bin/build-all
    ```
 
 ## 📁 Project Structure
@@ -115,7 +115,6 @@ ubuntu-server-unattended-iso/
 │   ├── autoinstall-base.yaml    # Base template
 │   └── snippets/           # Reusable configuration snippets
 
-Note: Symlinks at root (build-iso.sh, etc.) provide backward compatibility
 ```
 
 ## 🖥️ Available Profiles
@@ -187,7 +186,7 @@ Note: Symlinks at root (build-iso.sh, etc.) provide backward compatibility
 ### Method 1: Interactive Generator (Recommended)
 
 ```bash
-./generate-autoinstall.sh
+./bin/generate-autoinstall
 ```
 
 The wizard will guide you through:
@@ -229,10 +228,10 @@ The wizard will guide you through:
 
 ## 🔧 Command Line Options
 
-### build-iso.sh
+### build-iso
 
 ```bash
-./build-iso.sh --profile PROFILE_NAME [options]
+./bin/build-iso --profile PROFILE_NAME [options]
 
 Required:
   --profile NAME         Profile name from profiles/ directory
@@ -392,7 +391,7 @@ Profiles can be customized for different deployment scenarios:
 
 ```bash
 # Enable verbose output
-VERBOSE=1 ./build-iso.sh --profile minimal-server
+VERBOSE=1 ./bin/build-iso --profile minimal-server
 
 # Test specific components
 ./scripts/iso-tools.sh  # Test ISO backend detection
