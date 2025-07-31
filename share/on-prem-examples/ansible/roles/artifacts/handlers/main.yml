@@ -1,0 +1,20 @@
+---
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+
+- name: restart docker
+  service:
+    name: docker
+    state: restarted
+
+- name: restart apache2
+  service:
+    name: apache2
+    state: restarted
+
+- name: restart nexus
+  service:
+    name: nexus
+    state: restarted

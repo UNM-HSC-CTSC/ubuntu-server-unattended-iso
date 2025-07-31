@@ -1,0 +1,274 @@
+---
+# Configure artifacts server (Nexus Repository Manager)
+
+- name: Install Java and required packages
+  apt:
+    name:
+      - openjdk-11-jdk
+      - nginx
+      - docker.io
+      - docker-compose
+      - apache2-utils  # For htpasswd
+    state: present
+
+- name: Create nexus user
+  user:
+    name: nexus
+    comment: "Nexus service user"
+    home: /opt/nexus
+    shell: /bin/bash
+    system: yes
+
+- name: Create Nexus directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: nexus
+    group: nexus
+    mode: '0755'
+  loop:
+    - /opt/nexus
+    - /opt/sonatype-work
+    - /opt/sonatype-work/nexus3
+    - /var/log/nexus
+
+- name: Download and extract Nexus
+  unarchive:
+    src: https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+    dest: /opt
+    remote_src: yes
+    owner: nexus
+    group: nexus
+    creates: /opt/nexus-3
+
+- name: Create symlink for Nexus
+  file:
+    src: /opt/nexus-3*
+    dest: /opt/nexus/nexus
+    state: link
+    owner: nexus
+    group: nexus
+
+- name: Configure Nexus JVM settings
+  copy:
+    dest: /opt/nexus/nexus/bin/nexus.vmoptions
+    owner: nexus
+    group: nexus
+    content: |
+      -Xms2g
+      -Xmx2g
+      -XX:MaxDirectMemorySize=3g
+      -XX:+UnlockDiagnosticVMOptions
+      -XX:+LogVMOutput
+      -XX:LogFile=/var/log/nexus/jvm.log
+      -Djava.net.preferIPv4Stack=true
+      -Dkaraf.home=.
+      -Dkaraf.base=.
+      -Dkaraf.etc=etc/karaf
+      -Djava.util.logging.config.file=etc/karaf/java.util.logging.properties
+      -Dkaraf.data=/opt/sonatype-work/nexus3
+      -Dkaraf.log=/opt/sonatype-work/nexus3/log
+      -Djava.io.tmpdir=/opt/sonatype-work/nexus3/tmp
+
+- name: Create Nexus systemd service
+  copy:
+    dest: /etc/systemd/system/nexus.service
+    content: |
+      [Unit]
+      Description=Nexus Repository Manager
+      After=network.target
+      
+      [Service]
+      Type=forking
+      LimitNOFILE=65536
+      User=nexus
+      Group=nexus
+      ExecStart=/opt/nexus/nexus/bin/nexus start
+      ExecStop=/opt/nexus/nexus/bin/nexus stop
+      Restart=on-failure
+      
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Configure nginx reverse proxy for Nexus
+  copy:
+    dest: /etc/nginx/sites-available/nexus
+    content: |
+      upstream nexus {
+        server localhost:8081;
+      }
+      
+      server {
+        listen 80;
+        server_name artifacts.internal.company.com;
+        
+        client_max_body_size 1G;
+        
+        location / {
+          proxy_pass http://nexus;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_buffering off;
+          proxy_request_buffering off;
+        }
+      }
+      
+      # Docker registry on separate port
+      server {
+        listen 5000;
+        server_name artifacts.internal.company.com;
+        
+        client_max_body_size 0;
+        
+        location /v2 {
+          proxy_pass http://nexus/repository/docker-hosted/v2;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_buffering off;
+          proxy_request_buffering off;
+        }
+      }
+
+- name: Enable Nexus nginx site
+  file:
+    src: /etc/nginx/sites-available/nexus
+    dest: /etc/nginx/sites-enabled/nexus
+    state: link
+  notify: restart nginx
+
+- name: Configure Docker registry
+  copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "insecure-registries": ["artifacts.internal.company.com:5000"],
+        "registry-mirrors": ["http://artifacts.internal.company.com:5000"]
+      }
+  notify: restart docker
+
+- name: Create APT repository directory structure
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: nexus
+    group: nexus
+    mode: '0755'
+  loop:
+    - /opt/apt-repo
+    - /opt/apt-repo/ubuntu
+    - /opt/apt-repo/ubuntu/pool
+    - /opt/apt-repo/ubuntu/dists
+
+- name: Configure Apache for APT repository
+  copy:
+    dest: /etc/apache2/sites-available/apt-repo.conf
+    content: |
+      <VirtualHost *:8080>
+        ServerName apt.internal.company.com
+        DocumentRoot /opt/apt-repo
+        
+        <Directory /opt/apt-repo>
+          Options Indexes FollowSymLinks
+          AllowOverride None
+          Require all granted
+        </Directory>
+        
+        # Enable directory listings
+        <Directory /opt/apt-repo/ubuntu>
+          Options +Indexes
+        </Directory>
+      </VirtualHost>
+
+- name: Enable Apache modules
+  apache2_module:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - proxy
+    - proxy_http
+    - headers
+
+- name: Enable APT repository site
+  command: a2ensite apt-repo.conf
+  notify: restart apache2
+
+- name: Configure backup script
+  copy:
+    dest: /usr/local/bin/backup-nexus.sh
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      BACKUP_DIR="/var/backups/nexus"
+      mkdir -p $BACKUP_DIR
+      
+      # Stop Nexus for consistent backup
+      systemctl stop nexus
+      
+      # Backup Nexus data
+      tar czf $BACKUP_DIR/nexus-data-$(date +%Y%m%d).tar.gz /opt/sonatype-work/nexus3/
+      
+      # Start Nexus again
+      systemctl start nexus
+      
+      # Keep only last 7 days
+      find $BACKUP_DIR -name "*.tar.gz" -mtime +7 -delete
+
+- name: Schedule daily backups
+  cron:
+    name: "Nexus backup"
+    hour: "3"
+    minute: "0"
+    job: "/usr/local/bin/backup-nexus.sh"
+    user: root
+
+- name: Configure firewall
+  ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: tcp
+    comment: "{{ item.service }}"
+  loop:
+    - { port: 80, service: "Nexus Web UI" }
+    - { port: 5000, service: "Docker Registry" }
+    - { port: 8080, service: "APT Repository" }
+    - { port: 8081, service: "Nexus API" }
+
+- name: Start and enable services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  loop:
+    - nexus
+    - nginx
+    - docker
+    - apache2
+
+# Create helper scripts
+- name: Create Nexus CLI helper
+  copy:
+    dest: /usr/local/bin/nexus-upload
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      # Helper script to upload artifacts to Nexus
+      
+      if [ $# -lt 3 ]; then
+        echo "Usage: $0 <repository> <groupId> <artifactId> <version> <file>"
+        exit 1
+      fi
+      
+      REPO=$1
+      GROUP_ID=$2
+      ARTIFACT_ID=$3
+      VERSION=$4
+      FILE=$5
+      
+      curl -v -u admin:admin123 --upload-file $FILE \
+        http://localhost:8081/repository/$REPO/$GROUP_ID/$ARTIFACT_ID/$VERSION/$ARTIFACT_ID-$VERSION.jar
+

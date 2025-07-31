@@ -1,0 +1,35 @@
+---
+# Main Ansible playbook for on-premise infrastructure
+# This is pulled and executed by ansible-pull on first boot
+
+- name: Configure base system
+  hosts: localhost
+  connection: local
+  become: yes
+  tags: always
+  roles:
+    - base
+
+- name: Configure GitHub server
+  hosts: localhost
+  connection: local
+  become: yes
+  tags: github
+  roles:
+    - github
+
+- name: Configure tools server
+  hosts: localhost
+  connection: local
+  become: yes
+  tags: tools
+  roles:
+    - tools
+
+- name: Configure artifacts server
+  hosts: localhost
+  connection: local
+  become: yes
+  tags: artifacts
+  roles:
+    - artifacts

@@ -1,0 +1,30 @@
+{
+  "packages": [
+    "nginx",
+    "postgresql-14",
+    "postgresql-contrib-14",
+    "git",
+    "git-lfs",
+    "openssh-server",
+    "redis-server",
+    "nodejs",
+    "npm",
+    "build-essential",
+    "certbot",
+    "python3-certbot-nginx",
+    "fail2ban",
+    "ufw",
+    "htop",
+    "ncdu",
+    "tmux"
+  ],
+  "snap_packages": [],
+  "pip_packages": [],
+  "repositories": [
+    {
+      "name": "postgresql",
+      "key_url": "https://www.postgresql.org/media/keys/ACCC4CF8.asc",
+      "repo": "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"
+    }
+  ]
+}

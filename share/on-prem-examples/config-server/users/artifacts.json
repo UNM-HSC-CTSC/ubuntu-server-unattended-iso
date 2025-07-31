@@ -1,0 +1,31 @@
+{
+  "users": [
+    {
+      "username": "nexusadmin",
+      "uid": 1001,
+      "groups": ["sudo", "nexus"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... nexusadmin@company"
+      ]
+    },
+    {
+      "username": "jenkins",
+      "uid": 1002,
+      "groups": ["nexus-deployers"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD... jenkins@company"
+      ]
+    },
+    {
+      "username": "registry",
+      "uid": 1003,
+      "groups": ["docker"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQE... docker-registry@company"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,237 @@
+---
+# Configure tools server with development and monitoring tools
+
+- name: Add required repositories
+  apt_repository:
+    repo: "{{ item }}"
+    state: present
+  loop:
+    - ppa:longsleep/golang-backports  # For newer Go versions
+
+- name: Install development tools
+  apt:
+    name:
+      - build-essential
+      - gcc
+      - g++
+      - make
+      - cmake
+      - git
+      - vim
+      - emacs
+      - tmux
+      - screen
+      - golang-go
+      - python3-pip
+      - python3-venv
+      - python3-dev
+      - nodejs
+      - npm
+      - ruby
+      - ruby-dev
+      - openjdk-17-jdk
+      - maven
+      - gradle
+    state: present
+
+- name: Install container tools
+  apt:
+    name:
+      - docker.io
+      - docker-compose
+      - podman
+      - buildah
+    state: present
+
+- name: Install infrastructure tools
+  apt:
+    name:
+      - ansible
+      - terraform
+      - packer
+      - vagrant
+      - virtualbox
+    state: present
+
+- name: Install Kubernetes tools
+  shell: |
+    curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+    echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+    apt-get update
+    apt-get install -y kubectl kubectx kubens
+  args:
+    creates: /usr/bin/kubectl
+
+- name: Install Helm
+  shell: |
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+
+- name: Install monitoring stack
+  apt:
+    name:
+      - prometheus
+      - grafana
+      - elasticsearch
+      - logstash
+      - kibana
+    state: present
+
+- name: Configure Prometheus
+  copy:
+    dest: /etc/prometheus/prometheus.yml
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      
+      scrape_configs:
+        - job_name: 'node'
+          static_configs:
+            - targets:
+              - 'localhost:9100'
+              - 'github-01.internal.company.com:9100'
+              - 'artifacts-01.internal.company.com:9100'
+
+- name: Configure Grafana
+  copy:
+    dest: /etc/grafana/provisioning/datasources/prometheus.yaml
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://localhost:9090
+          isDefault: true
+
+- name: Install CLI tools via pip
+  pip:
+    name:
+      - awscli
+      - azure-cli
+      - gcloud
+      - ansible-lint
+      - yamllint
+      - jq
+      - yq
+      - httpie
+      - tldr
+    state: present
+
+- name: Install useful snap packages
+  snap:
+    name:
+      - lazydocker
+      - k9s
+      - btop
+    state: present
+
+- name: Create tools directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /opt/tools
+    - /opt/scripts
+    - /var/log/tools
+
+- name: Install custom scripts
+  copy:
+    dest: /opt/scripts/system-health.sh
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      echo "=== System Health Check ==="
+      echo "CPU Usage:"
+      top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1
+      echo ""
+      echo "Memory Usage:"
+      free -h
+      echo ""
+      echo "Disk Usage:"
+      df -h
+      echo ""
+      echo "Running Containers:"
+      docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+- name: Configure Docker daemon
+  copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2",
+        "metrics-addr": "0.0.0.0:9323",
+        "experimental": true
+      }
+  notify: restart docker
+
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop:
+    - devops
+    - developer
+
+- name: Start and enable services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  loop:
+    - docker
+    - prometheus
+    - grafana-server
+    - elasticsearch
+    - kibana
+
+- name: Configure firewall for tools
+  ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: tcp
+    comment: "{{ item.service }}"
+  loop:
+    - { port: 3000, service: "Grafana" }
+    - { port: 9090, service: "Prometheus" }
+    - { port: 5601, service: "Kibana" }
+    - { port: 9200, service: "Elasticsearch" }
+
+# Create helpful aliases
+- name: Create global bashrc additions
+  copy:
+    dest: /etc/profile.d/tools-aliases.sh
+    content: |
+      # Kubernetes aliases
+      alias k='kubectl'
+      alias kgp='kubectl get pods'
+      alias kgs='kubectl get svc'
+      alias kgd='kubectl get deployment'
+      
+      # Docker aliases
+      alias d='docker'
+      alias dc='docker-compose'
+      alias dps='docker ps'
+      alias dpsa='docker ps -a'
+      
+      # Git aliases
+      alias gs='git status'
+      alias ga='git add'
+      alias gc='git commit'
+      alias gp='git push'
+      alias gl='git log --oneline'
+      
+      # System aliases
+      alias ll='ls -alF'
+      alias la='ls -A'
+      alias l='ls -CF'
+

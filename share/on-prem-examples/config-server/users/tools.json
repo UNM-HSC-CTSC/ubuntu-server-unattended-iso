@@ -1,0 +1,32 @@
+{
+  "users": [
+    {
+      "username": "devops",
+      "uid": 1001,
+      "groups": ["sudo", "docker"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... devops@company",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... devops-oncall@company"
+      ]
+    },
+    {
+      "username": "monitoring",
+      "uid": 1002,
+      "groups": ["prometheus", "grafana"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD... monitoring@company"
+      ]
+    },
+    {
+      "username": "developer",
+      "uid": 1003,
+      "groups": ["developers"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQE... dev-team@company"
+      ]
+    }
+  ]
+}

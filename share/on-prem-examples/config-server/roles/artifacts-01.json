@@ -1,0 +1,11 @@
+{
+  "hostname": "artifacts-01",
+  "role": "artifacts",
+  "environment": "production",
+  "ansible_tags": ["base", "artifacts", "monitoring"],
+  "network": {
+    "ip": "10.0.2.30",
+    "gateway": "10.0.2.1",
+    "dns": ["10.0.1.2", "10.0.1.3"]
+  }
+}

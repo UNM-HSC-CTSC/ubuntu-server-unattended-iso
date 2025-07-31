@@ -1,0 +1,32 @@
+{
+  "users": [
+    {
+      "username": "gitadmin",
+      "uid": 1001,
+      "groups": ["sudo", "git"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... gitadmin@company",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... gitadmin-backup@company"
+      ]
+    },
+    {
+      "username": "cicd",
+      "uid": 1002,
+      "groups": ["docker", "git"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD... cicd-automation@company"
+      ]
+    },
+    {
+      "username": "backup",
+      "uid": 1003,
+      "groups": ["backup"],
+      "shell": "/bin/bash",
+      "ssh_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQE... backup-service@company"
+      ]
+    }
+  ]
+}

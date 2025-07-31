@@ -4,266 +4,229 @@
 [![GitHub release](https://img.shields.io/github/release/UNM-HSC-CTSC/ubuntu-server-unattended-iso.svg)](https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso/releases)
 [![License](https://img.shields.io/github/license/UNM-HSC-CTSC/ubuntu-server-unattended-iso.svg)](LICENSE)
 
-A professional command-line tool for creating unattended Ubuntu Server installation ISOs with custom configurations. This project automates the process of downloading Ubuntu Server ISOs, injecting autoinstall.yaml configurations, and repackaging them for automated deployments.
+A comprehensive system for creating self-configuring Ubuntu Server installations through custom ISOs. This project combines ISO building, cloud-init automation, and Ansible configuration management to enable zero-touch server deployments.
 
-**LTS First**: We recommend and default to Ubuntu LTS (Long Term Support) versions for stability and extended support. Currently supported LTS versions are 24.04.2, 22.04.5, and 20.04.6. However, you can use any valid Ubuntu Server version by specifying it.
+## 🚀 Key Features
 
-## Features
+- **Automated ISO Creation** - Build custom Ubuntu Server ISOs with embedded configurations
+- **Role-Based Deployments** - Servers automatically configure themselves based on assigned roles
+- **Bootstrap Architecture** - Self-hosting infrastructure with config and repository servers
+- **CI/CD Integration** - GitHub Actions automatically builds and distributes ISOs
+- **Zero Dependencies** - Uses only standard Linux tools, works everywhere
+- **Interactive Generator** - Create custom configurations with guided wizard
 
-- **Automated ISO Creation** - Download Ubuntu Server ISOs and inject custom autoinstall configurations
-- **Interactive Configuration Generator** - Create custom autoinstall.yaml files with guided wizard
-- **Multiple Ubuntu Versions** - Support for current and old Ubuntu releases
-- **Validation System** - Built-in YAML and autoinstall validation
-- **No External Dependencies** - Uses only standard Linux tools
-- **Python Fallback** - Works in restricted environments (Docker, CI/CD)
+## 📚 Documentation
 
-## Quick Start
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and components
+- **[Bootstrap Guide](docs/BOOTSTRAP-GUIDE.md)** - Setting up infrastructure from scratch
+- **[Deployment Guide](docs/DEPLOYMENT-GUIDE.md)** - Step-by-step deployment procedures
+- **[Role Definitions](docs/ROLE-DEFINITIONS.md)** - Available server roles and configurations
+- **[Developer Guide](CLAUDE.md)** - Technical details and design decisions
+
+## 🎯 Use Cases
+
+This project is ideal for:
+- **Data Centers** - Automated server provisioning at scale
+- **DevOps Teams** - Consistent, repeatable deployments
+- **Home Labs** - Quick server setup with minimal effort
+- **Disaster Recovery** - Rapidly rebuild infrastructure
+- **Compliance** - Auditable, version-controlled configurations
+
+## 🚦 Quick Start
 
 ### Option 1: Docker (Recommended - No Dependencies)
 
 #### Linux/macOS:
-
 ```bash
 # Clone the repository
 git clone https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso.git
 cd ubuntu-server-unattended-iso
 
-# Build ISO using Docker (automatically builds container on first run)
+# Build ISO using Docker
 ./docker-build.sh
 
-# Or with a custom configuration
-mkdir -p input
-cp my-autoinstall.yaml input/
-./docker-build.sh -- --autoinstall /input/my-autoinstall.yaml
-
-# Run interactive generator
+# Run interactive configuration generator
 ./docker-build.sh --generate
+
+# Build with custom configuration
+./docker-build.sh -- --autoinstall /input/my-config.yaml
 ```
 
 #### Windows:
-
 ```powershell
 # Clone the repository
 git clone https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso.git
 cd ubuntu-server-unattended-iso
 
-# Build ISO using Docker (PowerShell)
+# Build ISO using Docker
 .\docker-build.ps1
 
-# Or using batch file
-docker-build.bat
-
-# With custom configuration
-Copy-Item my-autoinstall.yaml input\
-.\docker-build.ps1 -- --autoinstall /input/my-autoinstall.yaml
-
-# Run interactive generator
+# Run interactive configuration generator
 .\docker-build.ps1 -Generate
 ```
-
-**Note**: Ensure Docker Desktop is installed and set to use Linux containers.
 
 ### Option 2: Local Installation
 
-#### Prerequisites
-
 ```bash
-# Core tools (usually pre-installed on Linux)
-bash, wget, curl, python3
-
-# Python packages
+# Prerequisites: bash, wget, curl, python3
 pip3 install pyyaml yamllint
-```
 
-#### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso.git
-cd ubuntu-server-unattended-iso
-
-# Build your first ISO
+# Build ISO
 ./bin/ubuntu-iso --autoinstall share/ubuntu-base/autoinstall.yaml
 
-# Or create a custom configuration interactively
+# Create custom configuration
 ./bin/ubuntu-iso-generate
 ```
 
-## Usage
+## 🏗️ System Architecture
 
-### Building an ISO
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│ GitHub Actions  │────▶│ Repository Server │────▶│   Hyper-V Host  │
+│ (Build ISOs)    │     │ (Store ISOs)      │     │ (Deploy VMs)    │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                                │                           │
+                                ▼                           ▼
+                        ┌──────────────────┐     ┌─────────────────┐
+                        │ Config Server    │◀────│    New VM       │
+                        │ (Ansible/Git)    │     │ (Cloud-init)    │
+                        └──────────────────┘     └─────────────────┘
+```
 
+## 📦 Available Server Roles
+
+- **Config Server** - Central configuration management
+- **Repository Server** - ISO and package storage
+- **GitHub Server** - On-premise Git hosting (Gitea)
+- **Tools Server** - Development and monitoring tools
+- **Artifacts Server** - Package repository (Nexus)
+
+See [Role Definitions](docs/ROLE-DEFINITIONS.md) for complete details.
+
+## 🔧 Advanced Usage
+
+### Building Role-Specific ISOs
 ```bash
-# Using the base configuration
-ubuntu-iso --autoinstall share/ubuntu-base/autoinstall.yaml
+# Build ISO for specific role
+./bin/ubuntu-iso --role github --output ubuntu-github.iso
 
-# Using a custom configuration
-ubuntu-iso --autoinstall my-config.yaml
-
-# Specify Ubuntu version (LTS recommended)
-ubuntu-iso --version 24.04.2 --autoinstall my-config.yaml
-
-# Use previous LTS version
-ubuntu-iso --version 22.04.5 --autoinstall my-config.yaml
-
-# Use any Ubuntu version (including non-LTS)
-ubuntu-iso --version 23.10.1 --autoinstall my-config.yaml
-
-# Skip validation (not recommended)
-ubuntu-iso --skip-validation --autoinstall my-config.yaml
+# Build with specific Ubuntu version
+./bin/ubuntu-iso --version 24.04.2 --role tools
 ```
 
-### Creating Custom Configurations
+### Bootstrap Process
+The system uses a two-phase bootstrap approach to solve infrastructure dependencies:
 
-```bash
-# Interactive configuration generator
-ubuntu-iso-generate
+1. **Phase 1**: Manual deployment of config and repository servers
+2. **Phase 2**: Automated deployment of all other servers
 
-# This will guide you through:
-# - Network setup (DHCP/static IP)
-# - User account creation
-# - SSH key configuration
-# - Package selection
-# - Storage layout
-# - Post-installation scripts
+See [Bootstrap Guide](docs/BOOTSTRAP-GUIDE.md) for detailed instructions.
+
+### CI/CD Integration
+```yaml
+# GitHub Actions automatically:
+- Builds ISOs on commits
+- Validates configurations
+- Uploads to repository server
+- Creates releases
 ```
 
-### Checking for Ubuntu Updates
+## 🛠️ Configuration Examples
 
-```bash
-# Check if new Ubuntu versions are available
-ubuntu-iso-check-updates
+### Basic Server
+```yaml
+#cloud-config
+version: 1
+identity:
+  hostname: myserver
+  username: admin
+  password: $6$rounds=4096$...
+network:
+  ethernets:
+    ens160:
+      dhcp4: true
 ```
 
-## Environment Variables
-
-Create a `.env` file based on `.env.example`:
-
-```bash
-# Ubuntu version to download
-UBUNTU_VERSION=24.04.2
-
-# Ubuntu mirror (optional)
-UBUNTU_MIRROR=https://releases.ubuntu.com
-
-# Cache directory for ISOs
-CACHE_DIR=./cache
-
-# Output directory
-OUTPUT_DIR=./output
+### Role-Based Server
+```yaml
+#cloud-config
+version: 1
+user-data:
+  role: github
+  config_server: config.company.com
+  runcmd:
+    - ansible-pull -U https://config.company.com/ansible.git -t github
 ```
 
-## Docker Usage
-
-The Docker setup provides a consistent build environment without requiring local dependencies.
-
-### Linux/macOS:
-
-```bash
-# Build the Docker image (if needed)
-./docker-build.sh --build
-
-# Build ISO with default configuration
-./docker-build.sh
-
-# Use custom autoinstall.yaml from input/ directory
-./docker-build.sh -- --autoinstall /input/my-config.yaml
-
-# Run interactive configuration generator
-./docker-build.sh --generate
-
-# Start a shell in the container for debugging
-./docker-build.sh --shell
-
-# Specify Ubuntu version
-./docker-build.sh -- --version 22.04.5 --autoinstall /input/my-config.yaml
-```
-
-### Windows (PowerShell):
-
-```powershell
-# Build the Docker image (if needed)
-.\docker-build.ps1 -Build
-
-# Build ISO with default configuration
-.\docker-build.ps1
-
-# Use custom autoinstall.yaml from input\ directory
-.\docker-build.ps1 -- --autoinstall /input/my-config.yaml
-
-# Run interactive configuration generator
-.\docker-build.ps1 -Generate
-
-# Start a shell in the container for debugging
-.\docker-build.ps1 -Shell
-
-# Specify Ubuntu version
-.\docker-build.ps1 -- --version 22.04.5 --autoinstall /input/my-config.yaml
-```
-
-### Docker Volumes
-
-- `./input/` - Place your custom autoinstall.yaml files here
-- `./output/` - Generated ISOs will be saved here
-- `./cache/` - Downloaded Ubuntu ISOs are cached here
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 ubuntu-server-unattended-iso/
 ├── bin/                    # Executable commands
-│   ├── ubuntu-iso          # Main ISO builder
-│   ├── ubuntu-iso-generate # Configuration generator
-│   └── ubuntu-iso-check-updates
 ├── lib/                    # Shared libraries
-│   ├── common.sh          # Common functions
-│   ├── download.sh        # ISO download logic
-│   ├── validate.sh        # Validation functions
-│   ├── iso-tools.sh       # ISO manipulation
-│   └── pyiso.py           # Python ISO fallback
-├── share/                  # Data files
-│   ├── ubuntu-base/       # Base configuration
-│   └── examples/          # Example configurations
-├── tests/                  # Test scripts
-├── docker-build.sh        # Docker wrapper script
-├── docker-compose.yml     # Docker Compose configuration
-├── Dockerfile            # Docker image definition
-└── .github/              # GitHub Actions workflows
+├── share/                  # Data files and examples
+├── profiles/              # Server role profiles
+├── ansible/               # Ansible playbooks and roles
+├── docs/                  # Documentation
+├── tests/                 # Test scripts
+└── .github/               # CI/CD workflows
 ```
 
-## Testing
+## 🧪 Testing
 
 ```bash
 # Run all tests
 ./test.sh
 
-# Run tests with CI mode (no colors)
+# Run with CI mode
 NO_COLOR=1 ./test.sh
+
+# Test specific component
+./tests/test-iso-tools.sh
 ```
 
-## How It Works
-
-1. **Download**: Fetches the specified Ubuntu Server ISO
-2. **Extract**: Unpacks the ISO contents
-3. **Inject**: Adds your autoinstall.yaml configuration
-4. **Repackage**: Creates a new bootable ISO
-5. **Validate**: Ensures the configuration is valid
-
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## License
+### Development Setup
+```bash
+# Fork and clone
+git clone https://github.com/YOUR-USERNAME/ubuntu-server-unattended-iso.git
+
+# Create feature branch
+git checkout -b feature/my-feature
+
+# Make changes and test
+./test.sh
+
+# Submit pull request
+```
+
+## 📄 License
 
 This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
 
-## Support
+## 🆘 Support
 
 - **Issues**: [GitHub Issues](https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso/discussions)
+- **Wiki**: [Project Wiki](https://github.com/UNM-HSC-CTSC/ubuntu-server-unattended-iso/wiki)
 
-## Acknowledgments
+## 🌟 Acknowledgments
 
 - Ubuntu Server team for the autoinstall system
 - Canonical for Subiquity installer
-- Community contributors
+- Cloud-init project for first-boot automation
+- Ansible community for configuration management
+- All contributors and users
+
+## 📊 Project Status
+
+- ✅ Core ISO building functionality
+- ✅ Role-based server profiles  
+- ✅ Bootstrap architecture
+- ✅ CI/CD integration
+- ✅ Comprehensive documentation
+- 🚧 HashiCorp Vault integration (planned)
+- 🚧 Web UI for ISO generation (planned)

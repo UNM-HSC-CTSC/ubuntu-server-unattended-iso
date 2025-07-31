@@ -1,0 +1,279 @@
+#cloud-config
+# Bootstrap autoinstall.yaml for on-premise server deployments
+# This minimal configuration bootstraps servers that will be configured via Ansible
+
+version: 1
+
+# Early commands to set up network for cloud-init
+early-commands:
+  # Get the first active network interface
+  - |
+    INTERFACE=$(ip -o link show | grep -v "lo:" | head -n1 | cut -d':' -f2 | tr -d ' ')
+    echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+
+# Identity configuration
+identity:
+  hostname: bootstrap-server
+  username: bootstrap
+  # Password is 'changeme' - MUST be changed after first boot
+  password: "$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0"
+
+# Network configuration - DHCP with fallback
+network:
+  version: 2
+  ethernets:
+    all-en:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp-identifier: mac
+    all-eth:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp-identifier: mac
+
+# Storage configuration - simple single disk
+storage:
+  config:
+    - type: disk
+      id: disk0
+      match:
+        size: largest
+    - type: partition
+      id: partition-0
+      device: disk0
+      size: 1G
+      flag: boot
+      number: 1
+    - type: format
+      id: format-0
+      volume: partition-0
+      fstype: ext4
+    - type: mount
+      id: mount-0
+      device: format-0
+      path: /boot
+    - type: partition
+      id: partition-1
+      device: disk0
+      size: -1
+      number: 2
+    - type: format
+      id: format-1
+      volume: partition-1
+      fstype: ext4
+    - type: mount
+      id: mount-1
+      device: format-1
+      path: /
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: true
+
+# Package selection - minimal with cloud-init
+packages:
+  - cloud-init
+  - ansible
+  - git
+  - python3-pip
+  - curl
+  - wget
+  - ca-certificates
+  - apt-transport-https
+  - software-properties-common
+  - gnupg
+  - lsb-release
+  - sudo
+  - openssh-server
+  - python3-yaml
+  - python3-jinja2
+  - python3-netaddr
+  - jq
+
+# Update system
+updates: security
+
+# User data for cloud-init
+user-data:
+  # Disable root
+  disable_root: true
+  
+  # Configure cloud-init modules
+  cloud_init_modules:
+    - migrator
+    - seed_random
+    - bootcmd
+    - write-files
+    - growpart
+    - resizefs
+    - disk_setup
+    - mounts
+    - set_hostname
+    - update_hostname
+    - update_etc_hosts
+    - ca-certs
+    - rsyslog
+    - users-groups
+    - ssh
+  
+  cloud_config_modules:
+    - emit_upstart
+    - snap
+    - ssh-import-id
+    - locale
+    - set-passwords
+    - grub-dpkg
+    - apt-pipelining
+    - apt-configure
+    - ubuntu-advantage
+    - ntp
+    - timezone
+    - disable-ec2-metadata
+    - runcmd
+    - byobu
+  
+  cloud_final_modules:
+    - package-update-upgrade-install
+    - fan
+    - landscape
+    - lxd
+    - ubuntu-drivers
+    - puppet
+    - chef
+    - mcollective
+    - salt-minion
+    - rightscale_userdata
+    - scripts-vendor
+    - scripts-per-once
+    - scripts-per-boot
+    - scripts-per-instance
+    - scripts-user
+    - ssh-authkey-fingerprints
+    - keys-to-console
+    - phone-home
+    - final-message
+    - power-state-change
+
+  # Write cloud-init configuration
+  write_files:
+    - path: /etc/cloud/cloud.cfg.d/90_dpkg.cfg
+      content: |
+        datasource_list: [ NoCloud, None ]
+      owner: root:root
+      permissions: '0644'
+    
+    - path: /etc/cloud/cloud.cfg.d/99-custom.cfg
+      content: |
+        # On-premise cloud-init configuration
+        network:
+          config: disabled
+        
+        # Preserve hostname
+        preserve_hostname: true
+        
+        # Configure datasource
+        datasource:
+          NoCloud:
+            # Look for configuration from local server
+            seedfrom: http://config.internal.company.com/cloud-init/
+    
+    - path: /usr/local/bin/bootstrap-ansible.sh
+      content: |
+        #!/bin/bash
+        set -e
+        
+        # Wait for network
+        until ping -c1 config.internal.company.com &>/dev/null; do
+          echo "Waiting for network..."
+          sleep 5
+        done
+        
+        # Get MAC address
+        MAC=$(ip link show | grep -o -E '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -n1)
+        
+        # Fetch role configuration based on MAC
+        ROLE_CONFIG=$(curl -sf "http://config.internal.company.com/roles/by-mac/${MAC}.json" || echo '{}')
+        
+        if [ "$ROLE_CONFIG" = "{}" ]; then
+          echo "No role configuration found for MAC ${MAC}"
+          exit 1
+        fi
+        
+        # Extract configuration
+        HOSTNAME=$(echo "$ROLE_CONFIG" | jq -r '.hostname')
+        ROLE=$(echo "$ROLE_CONFIG" | jq -r '.role')
+        TAGS=$(echo "$ROLE_CONFIG" | jq -r '.ansible_tags[]' | paste -sd,)
+        
+        # Set hostname
+        hostnamectl set-hostname "$HOSTNAME"
+        
+        # Clone Ansible repository
+        rm -rf /tmp/ansible-config
+        git clone http://config.internal.company.com/git/ansible-config.git /tmp/ansible-config
+        
+        # Run ansible-pull
+        cd /tmp/ansible-config
+        ansible-pull \
+          -U http://config.internal.company.com/git/ansible-config.git \
+          -C main \
+          -i localhost, \
+          --tags "$TAGS" \
+          site.yml
+        
+        # Clean up
+        rm -rf /tmp/ansible-config
+      owner: root:root
+      permissions: '0755'
+    
+    - path: /etc/systemd/system/bootstrap-ansible.service
+      content: |
+        [Unit]
+        Description=Bootstrap Ansible Configuration
+        After=network-online.target cloud-init.service
+        Wants=network-online.target
+        ConditionPathExists=!/var/lib/cloud/instance/bootstrap-complete
+        
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/bin/bootstrap-ansible.sh
+        ExecStartPost=/usr/bin/touch /var/lib/cloud/instance/bootstrap-complete
+        RemainAfterExit=yes
+        StandardOutput=journal
+        StandardError=journal
+        
+        [Install]
+        WantedBy=multi-user.target
+      owner: root:root
+      permissions: '0644'
+
+  # Run commands on first boot
+  runcmd:
+    # Enable and start bootstrap service
+    - systemctl daemon-reload
+    - systemctl enable bootstrap-ansible.service
+    - systemctl start bootstrap-ansible.service
+    
+    # Configure firewall basics
+    - ufw --force enable
+    - ufw allow ssh
+    - ufw allow http
+    - ufw allow https
+    
+    # Disable cloud-init after first boot
+    - touch /etc/cloud/cloud-init.disabled
+
+# Late commands
+late-commands:
+  # Ensure bootstrap user has sudo
+  - echo 'bootstrap ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/bootstrap
+  
+  # Create directory for cloud-init
+  - mkdir -p /target/var/lib/cloud/instance
+  
+  # Enable required services
+  - curtin in-target -- systemctl enable ssh
+  - curtin in-target -- systemctl enable systemd-networkd
+  - curtin in-target -- systemctl enable systemd-resolved

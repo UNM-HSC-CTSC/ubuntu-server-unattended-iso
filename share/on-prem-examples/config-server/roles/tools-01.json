@@ -1,0 +1,11 @@
+{
+  "hostname": "tools-01",
+  "role": "tools",
+  "environment": "production",
+  "ansible_tags": ["base", "tools", "monitoring"],
+  "network": {
+    "ip": "10.0.2.20",
+    "gateway": "10.0.2.1",
+    "dns": ["10.0.1.2", "10.0.1.3"]
+  }
+}

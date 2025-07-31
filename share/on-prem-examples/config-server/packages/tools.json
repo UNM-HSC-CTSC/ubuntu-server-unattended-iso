@@ -1,0 +1,58 @@
+{
+  "packages": [
+    "build-essential",
+    "git",
+    "vim",
+    "emacs",
+    "tmux",
+    "htop",
+    "iotop",
+    "sysstat",
+    "net-tools",
+    "dnsutils",
+    "tcpdump",
+    "nmap",
+    "python3-pip",
+    "python3-venv",
+    "golang",
+    "nodejs",
+    "npm",
+    "docker.io",
+    "docker-compose",
+    "jq",
+    "yq",
+    "ansible",
+    "terraform",
+    "kubectl",
+    "helm",
+    "prometheus-node-exporter",
+    "grafana",
+    "elasticsearch",
+    "logstash",
+    "kibana"
+  ],
+  "snap_packages": [
+    "aws-cli",
+    "google-cloud-sdk"
+  ],
+  "pip_packages": [
+    "awscli",
+    "azure-cli",
+    "ansible-lint",
+    "yamllint",
+    "black",
+    "flake8"
+  ],
+  "repositories": [
+    {
+      "name": "docker",
+      "key_url": "https://download.docker.com/linux/ubuntu/gpg",
+      "repo": "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    },
+    {
+      "name": "kubernetes",
+      "key_url": "https://packages.cloud.google.com/apt/doc/apt-key.gpg",
+      "repo": "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+    }
+  ]
+}

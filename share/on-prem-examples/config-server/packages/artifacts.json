@@ -1,0 +1,35 @@
+{
+  "packages": [
+    "openjdk-11-jdk",
+    "nginx",
+    "postgresql-14",
+    "postgresql-contrib-14",
+    "docker.io",
+    "docker-compose",
+    "docker-registry",
+    "apache2",
+    "libapache2-mod-proxy-html",
+    "libxml2-dev",
+    "ssl-cert",
+    "ca-certificates",
+    "curl",
+    "gnupg",
+    "lsb-release",
+    "ufw",
+    "fail2ban",
+    "htop",
+    "ncdu"
+  ],
+  "snap_packages": [],
+  "pip_packages": [
+    "docker-compose",
+    "requests"
+  ],
+  "repositories": [
+    {
+      "name": "docker",
+      "key_url": "https://download.docker.com/linux/ubuntu/gpg",
+      "repo": "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    }
+  ]
+}
