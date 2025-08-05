@@ -46,20 +46,30 @@ success() {
 
 usage() {
     cat << EOF
-Usage: $0 --profile PROFILE_NAME [options]
+Usage: $0 [--profile PROFILE_NAME | --role ROLE_NAME] [options]
 
-Creates an unattended Ubuntu Server ISO with the specified profile.
+Creates an unattended Ubuntu Server ISO with the specified profile or role.
 
-Required:
+Required (one of):
     --profile NAME         Profile name from profiles/ directory
+    --role NAME           Server role (github, tools, artifacts, etc.)
+                          Maps to profile: {role}-server or {role}-bootstrap
 
 Options:
     --ubuntu-version VER   Ubuntu version (default: $UBUNTU_VERSION)
     --ubuntu-mirror URL    Ubuntu mirror URL (default: $UBUNTU_MIRROR)
     --no-cache            Force fresh ISO download
     --output-dir DIR      Output directory (default: $OUTPUT_DIR)
+    --output NAME         Output ISO filename (overrides default)
     --skip-validation     Skip autoinstall.yaml validation
     --help                Show this help message
+
+Available roles:
+    config-bootstrap      Configuration server (self-contained)
+    repository-bootstrap  Repository server
+    github               GitHub/Gitea server
+    tools                Development and monitoring tools
+    artifacts            Package repository
 
 For template-secure profile, set these environment variables:
     DEFAULT_USERNAME       Username for the default user
@@ -71,6 +81,11 @@ Examples:
     $0 --profile example-minimal
     $0 --profile web-server --ubuntu-version 24.04.2
     $0 --profile database --no-cache
+    
+    # Using roles:
+    $0 --role github
+    $0 --role tools --output ubuntu-tools-dev.iso
+    $0 --role config-bootstrap --ubuntu-version 22.04.5
 
     # With credentials:
     export DEFAULT_USERNAME="ctsc_user"
@@ -238,6 +253,10 @@ parse_args() {
                 PROFILE="$2"
                 shift 2
                 ;;
+            --role)
+                ROLE="$2"
+                shift 2
+                ;;
             --ubuntu-version)
                 UBUNTU_VERSION="$2"
                 shift 2
@@ -254,6 +273,10 @@ parse_args() {
                 OUTPUT_DIR="$2"
                 shift 2
                 ;;
+            --output)
+                OUTPUT_NAME="$2"
+                shift 2
+                ;;
             --skip-validation)
                 SKIP_VALIDATION=true
                 shift
@@ -267,9 +290,26 @@ parse_args() {
         esac
     done
 
+    # Convert role to profile if needed
+    if [ -n "$ROLE" ] && [ -z "$PROFILE" ]; then
+        # Map role to profile name
+        case "$ROLE" in
+            config-bootstrap|repository-bootstrap)
+                PROFILE="$ROLE"
+                ;;
+            github|tools|artifacts)
+                PROFILE="${ROLE}-server"
+                ;;
+            *)
+                error "Unknown role: $ROLE. Valid roles: config-bootstrap, repository-bootstrap, github, tools, artifacts"
+                ;;
+        esac
+        info "Using role '$ROLE' mapped to profile '$PROFILE'"
+    fi
+    
     # Validate required arguments
     if [ -z "$PROFILE" ]; then
-        error "Profile is required. Use --profile PROFILE_NAME"
+        error "Profile or role is required. Use --profile PROFILE_NAME or --role ROLE_NAME"
     fi
 }
 
@@ -430,8 +470,19 @@ inject_autoinstall() {
 # Create new ISO (wrapper for iso-tools)
 create_iso_wrapper() {
     local extract_dir="$1"
-    local iso_name="${PROFILE}-ubuntu-${UBUNTU_VERSION}-$(date +%Y%m%d).iso"
-    local output_path="${OUTPUT_DIR}/${iso_name}"
+    local iso_name
+    local output_path
+    
+    # Use custom output name if provided, otherwise generate default
+    if [ -n "$OUTPUT_NAME" ]; then
+        iso_name="$OUTPUT_NAME"
+    else
+        # Use role name if available, otherwise profile
+        local name_prefix="${ROLE:-$PROFILE}"
+        iso_name="${name_prefix}-ubuntu-${UBUNTU_VERSION}-$(date +%Y%m%d).iso"
+    fi
+    
+    output_path="${OUTPUT_DIR}/${iso_name}"
     
     info "Creating new ISO: $iso_name"
     

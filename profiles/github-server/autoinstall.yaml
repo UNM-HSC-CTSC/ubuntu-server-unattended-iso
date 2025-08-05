@@ -1,0 +1,214 @@
+#cloud-config
+# Standard role-based configuration for GitHub Server
+# Uses cloud-init metadata to determine role and pulls config from config server
+
+version: 1
+
+# Identity - will be updated by cloud-init
+identity:
+  hostname: ubuntu-server
+  username: sysadmin
+  # Password is 'ChangeMe123!' - Should be changed via Ansible
+  password: "$6$rounds=4096$J86aZz0Q$To16RZztyS0BTZpDJqJqhkENNAe95c6Ag3.JzLH0zLPcHj.cGYvQ78Oq54Z7cPgJPLzqvLxGCjPbKwNQQEKhc/"
+
+# Network configuration - DHCP
+network:
+  version: 2
+  ethernets:
+    all-eth:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+    all-en:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+
+# Simple storage layout
+storage:
+  config:
+    - type: disk
+      id: disk0
+      match:
+        size: largest
+    - type: partition
+      id: partition-0
+      device: disk0
+      size: -1
+      flag: boot
+      number: 1
+      grub_device: true
+    - type: format
+      id: format-0
+      volume: partition-0
+      fstype: ext4
+    - type: mount
+      id: mount-0
+      device: format-0
+      path: /
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: true
+
+# Minimal packages - Ansible will install the rest
+packages:
+  - cloud-init
+  - ansible
+  - git
+  - python3-pip
+  - curl
+  - wget
+  - ca-certificates
+  - apt-transport-https
+  - software-properties-common
+  - gnupg
+  - lsb-release
+  - sudo
+  - openssh-server
+
+updates: security
+
+# User data with metadata
+user-data:
+  # Role metadata - this identifies the server type
+  metadata:
+    role: github
+    environment: production
+    config_server: hsc-ctsc-config.health.unm.edu
+  
+  # Cloud-init modules to run
+  cloud_init_modules:
+    - migrator
+    - seed_random
+    - bootcmd
+    - write-files
+    - growpart
+    - resizefs
+    - set_hostname
+    - update_hostname
+    - update_etc_hosts
+    - ca-certs
+    - rsyslog
+    - users-groups
+    - ssh
+  
+  # Write bootstrap script
+  write_files:
+    - path: /usr/local/bin/bootstrap-role.sh
+      content: |
+        #!/bin/bash
+        set -e
+        
+        echo "=== Role-Based Bootstrap Starting ==="
+        
+        # Get role from cloud-init metadata
+        ROLE=$(cloud-init query metadata.role 2>/dev/null || echo "unknown")
+        CONFIG_SERVER=$(cloud-init query metadata.config_server 2>/dev/null || echo "hsc-ctsc-config.health.unm.edu")
+        ENVIRONMENT=$(cloud-init query metadata.environment 2>/dev/null || echo "production")
+        
+        echo "Role: $ROLE"
+        echo "Config Server: $CONFIG_SERVER"
+        echo "Environment: $ENVIRONMENT"
+        
+        # Wait for network
+        echo "Waiting for network connectivity..."
+        until ping -c1 $CONFIG_SERVER &>/dev/null; do
+          echo "Waiting for config server..."
+          sleep 5
+        done
+        
+        # Set hostname based on role
+        INSTANCE_ID=$(cloud-init query instance_id 2>/dev/null || hostname -s)
+        NEW_HOSTNAME="hsc-ctsc-${ROLE}-${INSTANCE_ID##*-}"
+        echo "Setting hostname to: $NEW_HOSTNAME"
+        hostnamectl set-hostname $NEW_HOSTNAME
+        
+        # Update /etc/hosts
+        echo "127.0.1.1 $NEW_HOSTNAME" >> /etc/hosts
+        
+        # Clone Ansible configuration
+        echo "Cloning Ansible configuration..."
+        cd /tmp
+        rm -rf ansible-config
+        git clone http://$CONFIG_SERVER/git/ansible-config.git
+        
+        # Run Ansible playbook for this role
+        echo "Running Ansible playbook for role: $ROLE"
+        cd ansible-config
+        ansible-playbook -i localhost, -c local \
+          -e "role=$ROLE" \
+          -e "environment=$ENVIRONMENT" \
+          -e "config_server=$CONFIG_SERVER" \
+          -t "base,$ROLE" \
+          site.yml
+        
+        # Create completion marker
+        echo "$(date)" > /var/lib/cloud/instance/bootstrap-complete
+        echo "Role: $ROLE" >> /var/lib/cloud/instance/bootstrap-complete
+        
+        echo "=== Bootstrap Complete ==="
+      owner: root:root
+      permissions: '0755'
+    
+    - path: /etc/systemd/system/bootstrap-role.service
+      content: |
+        [Unit]
+        Description=Role-Based Bootstrap Service
+        After=cloud-final.service
+        Wants=cloud-final.service
+        ConditionPathExists=!/var/lib/cloud/instance/bootstrap-complete
+        
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/bin/bootstrap-role.sh
+        RemainAfterExit=yes
+        StandardOutput=journal
+        StandardError=journal
+        TimeoutStartSec=1800
+        
+        [Install]
+        WantedBy=multi-user.target
+      owner: root:root
+      permissions: '0644'
+  
+  # Configure cloud-init
+  cloud_config:
+    # Preserve hostname set by bootstrap
+    preserve_hostname: true
+    
+    # Disable network config after first boot
+    network:
+      config: disabled
+  
+  # Run commands
+  runcmd:
+    # Enable and start bootstrap service
+    - systemctl daemon-reload
+    - systemctl enable bootstrap-role.service
+    - systemctl start bootstrap-role.service
+    
+    # Basic firewall setup (will be configured properly by Ansible)
+    - ufw --force enable
+    - ufw allow ssh
+    
+    # Show initial status
+    - |
+      echo "==================================="
+      echo "Initial bootstrap started"
+      echo "Role: github"
+      echo "Check status: systemctl status bootstrap-role"
+      echo "View logs: journalctl -u bootstrap-role -f"
+      echo "==================================="
+
+# Late commands
+late-commands:
+  - curtin in-target -- systemctl enable ssh
+  - curtin in-target -- systemctl enable cloud-init

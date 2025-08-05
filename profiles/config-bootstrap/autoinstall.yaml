@@ -1,0 +1,373 @@
+#cloud-config
+# Bootstrap configuration for HSC-CTSC Config Server
+# This is a self-contained bootstrap that requires no external dependencies
+
+version: 1
+
+# Early commands
+early-commands:
+  - echo "Starting HSC-CTSC Config Server bootstrap installation"
+
+# Identity configuration
+identity:
+  hostname: hsc-ctsc-config
+  username: configadmin
+  # Password is 'ChangeMe123!' - MUST be changed after first boot
+  password: "$6$rounds=4096$J86aZz0Q$To16RZztyS0BTZpDJqJqhkENNAe95c6Ag3.JzLH0zLPcHj.cGYvQ78Oq54Z7cPgJPLzqvLxGCjPbKwNQQEKhc/"
+
+# Network configuration - DHCP from F5 BIG-IP
+network:
+  version: 2
+  ethernets:
+    all-eth:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+    all-en:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+
+# Storage configuration
+storage:
+  config:
+    - type: disk
+      id: disk0
+      match:
+        size: largest
+    - type: partition
+      id: partition-boot
+      device: disk0
+      size: 1G
+      flag: boot
+      number: 1
+      grub_device: true
+    - type: format
+      id: format-boot
+      volume: partition-boot
+      fstype: ext4
+    - type: mount
+      id: mount-boot
+      device: format-boot
+      path: /boot
+    - type: partition
+      id: partition-root
+      device: disk0
+      size: -1
+      number: 2
+    - type: format
+      id: format-root
+      volume: partition-root
+      fstype: ext4
+    - type: mount
+      id: mount-root
+      device: format-root
+      path: /
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: true
+
+# Package selection for config server
+packages:
+  # Web server
+  - nginx
+  - fcgiwrap
+  - ssl-cert
+  
+  # Git server
+  - git
+  - git-daemon-sysvinit
+  
+  # Configuration management
+  - ansible
+  - ansible-lint
+  
+  # Python and utilities
+  - python3-pip
+  - python3-yaml
+  - python3-jinja2
+  - python3-netaddr
+  
+  # System utilities
+  - curl
+  - wget
+  - jq
+  - htop
+  - vim
+  - tmux
+  - rsync
+  - unzip
+  
+  # Security
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  
+  # Monitoring
+  - prometheus-node-exporter
+
+# Update system
+updates: security
+
+# User data - Complete config server setup
+user-data:
+  # Timezone
+  timezone: America/Denver
+  
+  # Write files
+  write_files:
+    # Nginx configuration for config server
+    - path: /etc/nginx/sites-available/config-server
+      content: |
+        server {
+            listen 80 default_server;
+            listen [::]:80 default_server;
+            server_name hsc-ctsc-config.health.unm.edu hsc-ctsc-config;
+            
+            root /var/www/config;
+            index index.html index.nginx-debian.html;
+            
+            # Main configuration directory
+            location / {
+                autoindex on;
+                autoindex_exact_size off;
+                autoindex_localtime on;
+                try_files $uri $uri/ =404;
+            }
+            
+            # Git repository access
+            location ~ /git(/.*) {
+                # Disable gzip to prevent issues
+                gzip off;
+                
+                # FastCGI to git-http-backend
+                fastcgi_pass  unix:/var/run/fcgiwrap.socket;
+                include       fastcgi_params;
+                fastcgi_param SCRIPT_FILENAME /usr/lib/git-core/git-http-backend;
+                fastcgi_param GIT_HTTP_EXPORT_ALL "";
+                fastcgi_param GIT_PROJECT_ROOT /var/www/config/git;
+                fastcgi_param PATH_INFO $1;
+                fastcgi_param REMOTE_USER $remote_user;
+            }
+            
+            # Health check endpoint
+            location /health {
+                access_log off;
+                return 200 "OK\n";
+                add_header Content-Type text/plain;
+            }
+        }
+        
+        # HTTPS configuration (for future use with proper certificates)
+        server {
+            listen 443 ssl default_server;
+            listen [::]:443 ssl default_server;
+            server_name hsc-ctsc-config.health.unm.edu hsc-ctsc-config;
+            
+            ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+            ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+            
+            root /var/www/config;
+            
+            location / {
+                autoindex on;
+                autoindex_exact_size off;
+                autoindex_localtime on;
+                try_files $uri $uri/ =404;
+            }
+            
+            location ~ /git(/.*) {
+                gzip off;
+                fastcgi_pass  unix:/var/run/fcgiwrap.socket;
+                include       fastcgi_params;
+                fastcgi_param SCRIPT_FILENAME /usr/lib/git-core/git-http-backend;
+                fastcgi_param GIT_HTTP_EXPORT_ALL "";
+                fastcgi_param GIT_PROJECT_ROOT /var/www/config/git;
+                fastcgi_param PATH_INFO $1;
+                fastcgi_param REMOTE_USER $remote_user;
+            }
+        }
+      owner: root:root
+      permissions: '0644'
+    
+    # Git daemon configuration
+    - path: /etc/systemd/system/git-daemon.service
+      content: |
+        [Unit]
+        Description=Git Daemon
+        After=network.target
+        
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/git daemon --reuseaddr --base-path=/var/www/config/git/ --export-all --verbose --enable=receive-pack
+        Restart=always
+        RestartSec=5
+        StandardOutput=journal
+        StandardError=journal
+        User=git
+        Group=git
+        
+        [Install]
+        WantedBy=multi-user.target
+      owner: root:root
+      permissions: '0644'
+    
+    # Bootstrap marker script
+    - path: /usr/local/bin/config-server-status
+      content: |
+        #!/bin/bash
+        echo "=== HSC-CTSC Config Server Status ==="
+        echo "Hostname: $(hostname -f)"
+        echo "IP Address: $(ip -4 addr show | grep inet | grep -v 127.0.0.1 | awk '{print $2}' | head -1)"
+        echo ""
+        echo "Services:"
+        systemctl is-active nginx >/dev/null && echo "✓ Nginx: Running" || echo "✗ Nginx: Stopped"
+        systemctl is-active git-daemon >/dev/null && echo "✓ Git Daemon: Running" || echo "✗ Git Daemon: Stopped"
+        systemctl is-active ssh >/dev/null && echo "✓ SSH: Running" || echo "✗ SSH: Stopped"
+        echo ""
+        echo "Repository Status:"
+        if [ -d /var/www/config/git/ansible-config.git ]; then
+          echo "✓ Ansible repository initialized"
+        else
+          echo "✗ Ansible repository not initialized"
+        fi
+        echo ""
+        echo "Web Root Contents:"
+        ls -la /var/www/config/
+      owner: root:root
+      permissions: '0755'
+    
+    # Firewall rules
+    - path: /etc/ufw/applications.d/config-server
+      content: |
+        [ConfigServer]
+        title=Config Server
+        description=HSC-CTSC Configuration Server
+        ports=22,80,443,9418/tcp
+      owner: root:root
+      permissions: '0644'
+  
+  # Run commands on first boot
+  runcmd:
+    # Create directory structure
+    - mkdir -p /var/www/config/{ansible,roles,scripts,git}
+    - mkdir -p /var/log/config-server
+    
+    # Create git user for git daemon
+    - useradd -r -s /bin/bash -d /var/www/config/git -m git || true
+    
+    # Set up Git repository
+    - cd /var/www/config/git && git init --bare ansible-config.git
+    - cd /var/www/config/git/ansible-config.git && git config receive.denyCurrentBranch updateInstead
+    - chown -R git:git /var/www/config/git
+    
+    # Set up web root permissions
+    - chown -R www-data:www-data /var/www/config
+    - chmod -R 755 /var/www/config
+    
+    # Enable nginx site
+    - rm -f /etc/nginx/sites-enabled/default
+    - ln -sf /etc/nginx/sites-available/config-server /etc/nginx/sites-enabled/
+    - nginx -t && systemctl restart nginx
+    
+    # Enable and start git daemon
+    - systemctl daemon-reload
+    - systemctl enable git-daemon
+    - systemctl start git-daemon
+    
+    # Configure firewall
+    - ufw --force enable
+    - ufw allow ConfigServer
+    - ufw reload
+    
+    # Create initial index page
+    - |
+      cat > /var/www/config/index.html << 'EOF'
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>HSC-CTSC Config Server</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 40px; }
+              h1 { color: #333; }
+              .status { background: #f0f0f0; padding: 10px; border-radius: 5px; }
+              .ok { color: green; }
+              .warn { color: orange; }
+              a { color: #0066cc; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+          </style>
+      </head>
+      <body>
+          <h1>HSC-CTSC Configuration Server</h1>
+          <div class="status">
+              <p class="ok">✓ Config Server is operational</p>
+              <p>This server provides configuration management for the HSC-CTSC infrastructure.</p>
+          </div>
+          <h2>Available Resources</h2>
+          <ul>
+              <li><a href="/ansible/">Ansible Configurations</a></li>
+              <li><a href="/roles/">Role Definitions</a></li>
+              <li><a href="/scripts/">Bootstrap Scripts</a></li>
+              <li><a href="/health">Health Check</a></li>
+          </ul>
+          <h2>Git Repository</h2>
+          <p>Clone the Ansible repository:</p>
+          <pre>git clone http://hsc-ctsc-config.health.unm.edu/git/ansible-config.git</pre>
+          <hr>
+          <p><small>HSC-CTSC Infrastructure | $(date)</small></p>
+      </body>
+      </html>
+      EOF
+    
+    # Create bootstrap complete marker
+    - touch /var/www/config/.bootstrap-complete
+    - date > /var/www/config/.bootstrap-timestamp
+    
+    # Configure automatic security updates
+    - |
+      cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'EOF'
+      Unattended-Upgrade::Allowed-Origins {
+          "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+      Unattended-Upgrade::MinimalSteps "true";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+      EOF
+    
+    # Enable unattended upgrades
+    - echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::Download-Upgradeable-Packages "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::AutocleanInterval "7";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::Unattended-Upgrade "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    
+    # Display completion message
+    - |
+      echo "======================================"
+      echo "Config Server Bootstrap Complete!"
+      echo "======================================"
+      echo "Server: hsc-ctsc-config.health.unm.edu"
+      echo "IP: $(ip -4 addr show | grep inet | grep -v 127.0.0.1 | awk '{print $2}' | head -1)"
+      echo ""
+      echo "Next steps:"
+      echo "1. Change the configadmin password"
+      echo "2. Upload Ansible playbooks to Git repository"
+      echo "3. Configure SSL certificates"
+      echo "4. Deploy repository server"
+      echo "======================================"
+
+# Late commands
+late-commands:
+  - curtin in-target -- systemctl enable ssh
+  - curtin in-target -- systemctl enable nginx
+  - curtin in-target -- systemctl enable ufw
+  - curtin in-target -- systemctl enable fail2ban

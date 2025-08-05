@@ -20,6 +20,7 @@ A comprehensive system for creating self-configuring Ubuntu Server installations
 - **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and components
 - **[Bootstrap Guide](docs/BOOTSTRAP-GUIDE.md)** - Setting up infrastructure from scratch
 - **[Deployment Guide](docs/DEPLOYMENT-GUIDE.md)** - Step-by-step deployment procedures
+- **[Windows Deployment Guide](docs/WINDOWS-DEPLOYMENT.md)** - Complete guide for Windows Server with Hyper-V
 - **[Role Definitions](docs/ROLE-DEFINITIONS.md)** - Available server roles and configurations
 - **[Developer Guide](CLAUDE.md)** - Technical details and design decisions
 

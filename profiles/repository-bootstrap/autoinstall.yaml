@@ -1,0 +1,532 @@
+#cloud-config
+# Bootstrap configuration for HSC-CTSC Repository Server
+# This server can use the config server for additional configuration
+
+version: 1
+
+# Early commands
+early-commands:
+  - echo "Starting HSC-CTSC Repository Server bootstrap installation"
+
+# Identity configuration
+identity:
+  hostname: hsc-ctsc-repository
+  username: repoadmin
+  # Password is 'ChangeMe123!' - MUST be changed after first boot
+  password: "$6$rounds=4096$J86aZz0Q$To16RZztyS0BTZpDJqJqhkENNAe95c6Ag3.JzLH0zLPcHj.cGYvQ78Oq54Z7cPgJPLzqvLxGCjPbKwNQQEKhc/"
+
+# Network configuration - DHCP from F5 BIG-IP
+network:
+  version: 2
+  ethernets:
+    all-eth:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+    all-en:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+
+# Storage configuration - Large storage for artifacts
+storage:
+  config:
+    - type: disk
+      id: disk0
+      match:
+        size: largest
+    - type: partition
+      id: partition-boot
+      device: disk0
+      size: 1G
+      flag: boot
+      number: 1
+      grub_device: true
+    - type: format
+      id: format-boot
+      volume: partition-boot
+      fstype: ext4
+    - type: mount
+      id: mount-boot
+      device: format-boot
+      path: /boot
+    - type: partition
+      id: partition-root
+      device: disk0
+      size: 50G
+      number: 2
+    - type: format
+      id: format-root
+      volume: partition-root
+      fstype: ext4
+    - type: mount
+      id: mount-root
+      device: format-root
+      path: /
+    - type: partition
+      id: partition-data
+      device: disk0
+      size: -1
+      number: 3
+    - type: format
+      id: format-data
+      volume: partition-data
+      fstype: ext4
+    - type: mount
+      id: mount-data
+      device: format-data
+      path: /var/repository
+
+# SSH configuration
+ssh:
+  install-server: true
+  allow-pw: true
+
+# Package selection for repository server
+packages:
+  # Java for Nexus
+  - openjdk-11-jdk
+  
+  # Web server
+  - nginx
+  - apache2-utils
+  
+  # Container support
+  - docker.io
+  - docker-compose
+  
+  # Database
+  - postgresql
+  - postgresql-contrib
+  
+  # Python and utilities
+  - python3-pip
+  - python3-yaml
+  - curl
+  - wget
+  - jq
+  - unzip
+  
+  # Git and Ansible for pulling config
+  - git
+  - ansible
+  
+  # System utilities
+  - htop
+  - vim
+  - tmux
+  - rsync
+  
+  # Security
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  
+  # Monitoring
+  - prometheus-node-exporter
+
+# Update system
+updates: security
+
+# User data
+user-data:
+  # Timezone
+  timezone: America/Denver
+  
+  # Write files
+  write_files:
+    # Repository API service
+    - path: /usr/local/bin/repository-api.py
+      content: |
+        #!/usr/bin/env python3
+        import os
+        import json
+        import hashlib
+        from flask import Flask, request, jsonify, send_file
+        from werkzeug.utils import secure_filename
+        import datetime
+        
+        app = Flask(__name__)
+        UPLOAD_FOLDER = '/var/repository/isos'
+        ALLOWED_EXTENSIONS = {'iso'}
+        
+        def allowed_file(filename):
+            return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+        
+        @app.route('/api/upload', methods=['POST'])
+        def upload_iso():
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file provided'}), 400
+            
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                version = request.form.get('version', 'latest')
+                role = request.form.get('role', 'unknown')
+                
+                # Create role directory
+                role_dir = os.path.join(UPLOAD_FOLDER, role)
+                os.makedirs(role_dir, exist_ok=True)
+                
+                # Save with version
+                versioned_name = f"{role}-{version}.iso"
+                filepath = os.path.join(role_dir, versioned_name)
+                file.save(filepath)
+                
+                # Create symlink for latest
+                latest_link = os.path.join(role_dir, f"{role}-latest.iso")
+                if os.path.exists(latest_link):
+                    os.unlink(latest_link)
+                os.symlink(versioned_name, latest_link)
+                
+                # Calculate checksum
+                sha256_hash = hashlib.sha256()
+                with open(filepath, "rb") as f:
+                    for byte_block in iter(lambda: f.read(4096), b""):
+                        sha256_hash.update(byte_block)
+                
+                # Save metadata
+                metadata = {
+                    'filename': filename,
+                    'version': version,
+                    'role': role,
+                    'size': os.path.getsize(filepath),
+                    'checksum': sha256_hash.hexdigest(),
+                    'uploaded': datetime.datetime.now().isoformat()
+                }
+                
+                with open(filepath + '.json', 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                return jsonify({
+                    'message': 'File uploaded successfully',
+                    'metadata': metadata
+                }), 201
+            
+            return jsonify({'error': 'Invalid file type'}), 400
+        
+        @app.route('/api/isos', methods=['GET'])
+        def list_isos():
+            isos = []
+            for root, dirs, files in os.walk(UPLOAD_FOLDER):
+                for file in files:
+                    if file.endswith('.iso'):
+                        filepath = os.path.join(root, file)
+                        metadata_file = filepath + '.json'
+                        if os.path.exists(metadata_file):
+                            with open(metadata_file, 'r') as f:
+                                metadata = json.load(f)
+                                isos.append(metadata)
+            return jsonify(isos)
+        
+        @app.route('/api/isos/<role>/<filename>', methods=['GET'])
+        def download_iso(role, filename):
+            filepath = os.path.join(UPLOAD_FOLDER, role, secure_filename(filename))
+            if os.path.exists(filepath):
+                return send_file(filepath, as_attachment=True)
+            return jsonify({'error': 'File not found'}), 404
+        
+        @app.route('/health', methods=['GET'])
+        def health():
+            return 'OK', 200
+        
+        if __name__ == '__main__':
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            app.run(host='0.0.0.0', port=5000)
+      owner: root:root
+      permissions: '0755'
+    
+    # Systemd service for API
+    - path: /etc/systemd/system/repository-api.service
+      content: |
+        [Unit]
+        Description=Repository API Service
+        After=network.target
+        
+        [Service]
+        Type=simple
+        User=www-data
+        Group=www-data
+        ExecStart=/usr/local/bin/repository-api.py
+        Restart=always
+        RestartSec=5
+        Environment="PYTHONUNBUFFERED=1"
+        
+        [Install]
+        WantedBy=multi-user.target
+      owner: root:root
+      permissions: '0644'
+    
+    # Nginx configuration
+    - path: /etc/nginx/sites-available/repository
+      content: |
+        upstream nexus {
+            server localhost:8081;
+        }
+        
+        upstream api {
+            server localhost:5000;
+        }
+        
+        server {
+            listen 80 default_server;
+            listen [::]:80 default_server;
+            server_name hsc-ctsc-repository.health.unm.edu hsc-ctsc-repository;
+            
+            client_max_body_size 5G;
+            
+            # Repository API
+            location /api/ {
+                proxy_pass http://api/api/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_buffering off;
+                proxy_request_buffering off;
+            }
+            
+            # ISO downloads
+            location /isos/ {
+                alias /var/repository/isos/;
+                autoindex on;
+                autoindex_exact_size off;
+                autoindex_localtime on;
+            }
+            
+            # Nexus Repository Manager
+            location / {
+                proxy_pass http://nexus/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_buffering off;
+                proxy_request_buffering off;
+            }
+            
+            # Docker registry on port 5000
+            location /v2/ {
+                proxy_pass http://nexus/v2/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_buffering off;
+                proxy_request_buffering off;
+            }
+            
+            # Health check
+            location /health {
+                access_log off;
+                return 200 "OK\n";
+                add_header Content-Type text/plain;
+            }
+        }
+        
+        # Docker registry on separate port
+        server {
+            listen 5000;
+            listen [::]:5000;
+            server_name hsc-ctsc-repository.health.unm.edu;
+            
+            client_max_body_size 0;
+            
+            location /v2/ {
+                proxy_pass http://nexus/repository/docker-hosted/v2/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_buffering off;
+                proxy_request_buffering off;
+            }
+        }
+      owner: root:root
+      permissions: '0644'
+    
+    # Bootstrap script to pull from config server
+    - path: /usr/local/bin/bootstrap-repository.sh
+      content: |
+        #!/bin/bash
+        set -e
+        
+        echo "=== Bootstrapping Repository Server ==="
+        
+        # Wait for network
+        echo "Waiting for network connectivity..."
+        until ping -c1 hsc-ctsc-config.health.unm.edu &>/dev/null; do
+          echo "Waiting for config server..."
+          sleep 5
+        done
+        
+        # Clone Ansible configuration
+        echo "Cloning Ansible configuration..."
+        cd /tmp
+        rm -rf ansible-config
+        git clone http://hsc-ctsc-config.health.unm.edu/git/ansible-config.git
+        
+        # Run Ansible playbook for repository role
+        echo "Running Ansible playbook..."
+        cd ansible-config
+        ansible-playbook -i localhost, -c local -t repository site.yml
+        
+        echo "=== Bootstrap Complete ==="
+      owner: root:root
+      permissions: '0755'
+    
+    # Firewall configuration
+    - path: /etc/ufw/applications.d/repository
+      content: |
+        [Repository]
+        title=Repository Server
+        description=HSC-CTSC Repository Server
+        ports=22,80,443,5000,8081/tcp
+      owner: root:root
+      permissions: '0644'
+  
+  # Run commands on first boot
+  runcmd:
+    # Create repository directories
+    - mkdir -p /var/repository/{isos,packages,docker,maven,npm,artifacts}
+    - chown -R www-data:www-data /var/repository
+    
+    # Install Python Flask for API
+    - pip3 install flask
+    
+    # Create nexus user
+    - useradd -r -s /bin/bash -d /opt/nexus -m nexus || true
+    
+    # Download and install Nexus
+    - |
+      cd /tmp
+      NEXUS_VERSION="3.45.1-01"
+      wget -q https://download.sonatype.com/nexus/3/nexus-${NEXUS_VERSION}-unix.tar.gz
+      tar xzf nexus-${NEXUS_VERSION}-unix.tar.gz
+      mv nexus-${NEXUS_VERSION} /opt/nexus/nexus
+      mv sonatype-work /opt/
+      chown -R nexus:nexus /opt/nexus /opt/sonatype-work
+    
+    # Configure Nexus
+    - |
+      cat > /opt/nexus/nexus/bin/nexus.vmoptions << 'EOF'
+      -Xms2g
+      -Xmx2g
+      -XX:MaxDirectMemorySize=3g
+      -XX:+UnlockDiagnosticVMOptions
+      -XX:+LogVMOutput
+      -XX:LogFile=/var/log/nexus/jvm.log
+      -Djava.net.preferIPv4Stack=true
+      -Dkaraf.home=.
+      -Dkaraf.base=.
+      -Dkaraf.etc=etc/karaf
+      -Djava.util.logging.config.file=etc/karaf/java.util.logging.properties
+      -Dkaraf.data=/opt/sonatype-work/nexus3
+      -Dkaraf.log=/opt/sonatype-work/nexus3/log
+      -Djava.io.tmpdir=/opt/sonatype-work/nexus3/tmp
+      EOF
+    
+    # Create Nexus systemd service
+    - |
+      cat > /etc/systemd/system/nexus.service << 'EOF'
+      [Unit]
+      Description=Nexus Repository Manager
+      After=network.target
+      
+      [Service]
+      Type=forking
+      LimitNOFILE=65536
+      User=nexus
+      Group=nexus
+      ExecStart=/opt/nexus/nexus/bin/nexus start
+      ExecStop=/opt/nexus/nexus/bin/nexus stop
+      Restart=on-failure
+      
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+    
+    # Create log directory
+    - mkdir -p /var/log/nexus
+    - chown nexus:nexus /var/log/nexus
+    
+    # Enable nginx site
+    - rm -f /etc/nginx/sites-enabled/default
+    - ln -sf /etc/nginx/sites-available/repository /etc/nginx/sites-enabled/
+    - nginx -t && systemctl restart nginx
+    
+    # Configure Docker
+    - usermod -aG docker repoadmin || true
+    - |
+      cat > /etc/docker/daemon.json << 'EOF'
+      {
+        "insecure-registries": ["hsc-ctsc-repository.health.unm.edu:5000"],
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+      EOF
+    - systemctl restart docker
+    
+    # Configure firewall
+    - ufw --force enable
+    - ufw allow Repository
+    - ufw reload
+    
+    # Enable services
+    - systemctl daemon-reload
+    - systemctl enable repository-api
+    - systemctl start repository-api
+    - systemctl enable nexus
+    - systemctl start nexus
+    
+    # Configure automatic updates
+    - |
+      cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'EOF'
+      Unattended-Upgrade::Allowed-Origins {
+          "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+      Unattended-Upgrade::MinimalSteps "true";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+      EOF
+    
+    # Try to bootstrap from config server (may fail if config server not ready)
+    - /usr/local/bin/bootstrap-repository.sh || true
+    
+    # Display completion message
+    - |
+      echo "======================================"
+      echo "Repository Server Bootstrap Complete!"
+      echo "======================================"
+      echo "Server: hsc-ctsc-repository.health.unm.edu"
+      echo "IP: $(ip -4 addr show | grep inet | grep -v 127.0.0.1 | awk '{print $2}' | head -1)"
+      echo ""
+      echo "Services:"
+      echo "- Nexus: http://hsc-ctsc-repository.health.unm.edu (starting...)"
+      echo "- API: http://hsc-ctsc-repository.health.unm.edu/api/"
+      echo "- ISOs: http://hsc-ctsc-repository.health.unm.edu/isos/"
+      echo ""
+      echo "Default Nexus credentials: admin/admin123"
+      echo "Change these immediately!"
+      echo "======================================"
+
+# Late commands
+late-commands:
+  - curtin in-target -- systemctl enable ssh
+  - curtin in-target -- systemctl enable nginx
+  - curtin in-target -- systemctl enable docker
+  - curtin in-target -- systemctl enable ufw
