@@ -171,76 +171,77 @@ These roles provide specific services for users and applications.
 
 ### GitHub Server
 
-**Purpose**: On-premise Git repository hosting
+**Purpose**: GitHub Actions self-hosted runners for CI/CD
 
-**Hostname Pattern**: `hsc-ctsc-github-##`, `github.company.com`
+**Hostname Pattern**: `hsc-ctsc-github-##`, `github-runners.company.com`
 
 **Key Features**:
-- Git repository hosting
-- Web interface (Gitea)
-- CI/CD webhook support
-- LFS support
+- Multiple concurrent runners (default: 4)
+- Docker support for containerized builds
+- Ephemeral runners for security
+- Automated cleanup and maintenance
+- Enterprise-ready monitoring
 
 **Services**:
 ```yaml
-- gitea           # Git service
-- postgresql      # Database
-- nginx           # Reverse proxy
-- redis           # Cache
+- github-runner@1-4  # Runner services
+- docker             # Container runtime
+- prometheus-node-exporter  # Metrics
 ```
 
 **Packages**:
 ```yaml
-- git
-- git-lfs
-- postgresql
-- postgresql-contrib
-- nginx
-- redis-server
-- certbot
+# Core runner requirements
+- curl, wget, git
+- build-essential
+- docker.io, docker-compose
+
+# Development tools
+- python3-pip, python3-venv
+- nodejs (optional)
+- golang (optional)
 ```
 
 **Configuration**:
 ```yaml
-# Gitea Configuration
-app_name: "Company Git"
-run_user: git
-run_mode: prod
+# Runner Configuration
+runner_count: 4
+runner_labels: "self-hosted,linux,x64,ubuntu-24.04,docker"
+runner_ephemeral: true
+runner_group: "default"
 
-database:
-  type: postgres
-  host: localhost
-  name: gitea
-  user: gitea
+# Features
+docker_enabled: true
+docker_privileged: false
+cache_enabled: true
 
-server:
-  domain: github.company.com
-  http_port: 3000
-  root_url: https://github.company.com/
-  
-repository:
-  root: /var/lib/gitea/repositories
-  default_private: true
+# Resource limits per runner
+runner_cpu_limit: "2"
+runner_memory_limit: "4G"
+runner_disk_quota: "50G"
 ```
 
-**Default Users**:
-- `gitadmin` - Administrator
-- `developer` - Standard user
-- `cicd` - CI/CD service account
+**Runner Users**:
+- `runner` - Primary runner
+- `runner2-4` - Additional runners
+- `sysadmin` - System administrator
 
 **Network Requirements**:
-- Port 22 (Git SSH)
-- Port 80 (HTTP)
-- Port 443 (HTTPS)
+- Port 22 (SSH management)
+- Port 443 (HTTPS to GitHub Enterprise) - outbound only
+- Port 80 (HTTP to GitHub Enterprise) - outbound only
+- Port 9100 (Prometheus metrics)
 
 **Storage Requirements**:
-- Minimum: 50GB
-- Recommended: 200GB+
+- Minimum: 100GB
+- Recommended: 500GB+ (for Docker images and build artifacts)
+- Work directory: `/home/runner*/work`
 
-**Backup Strategy**:
-- Daily database backups
-- Repository directory backups
-- Configuration backups
+**Management**:
+- Registration: `sudo register-runner`
+- Status: `sudo runner-status`
+- Health check: `sudo runner-health-check`
+- Updates: `sudo update-runners`
 
 ### Tools Server
 

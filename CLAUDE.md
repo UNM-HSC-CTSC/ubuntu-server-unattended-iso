@@ -517,7 +517,7 @@ The project now includes comprehensive documentation:
 - **[docs/ROLE-DEFINITIONS.md](docs/ROLE-DEFINITIONS.md)**: All available server roles
 - **[README.md](README.md)**: Project overview and quick start
 
-## Current Status (As of Last Session)
+## Current Status (Latest Updates)
 
 ### ✅ Completed Tasks
 
@@ -526,6 +526,8 @@ The project now includes comprehensive documentation:
    - ✅ [docs/BOOTSTRAP-GUIDE.md](docs/BOOTSTRAP-GUIDE.md) - Bootstrap procedures
    - ✅ [docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md) - Deployment guide
    - ✅ [docs/ROLE-DEFINITIONS.md](docs/ROLE-DEFINITIONS.md) - Server role definitions
+   - ✅ [docs/WINDOWS-DEPLOYMENT.md](docs/WINDOWS-DEPLOYMENT.md) - Windows/Hyper-V guide
+   - ✅ [docs/GITHUB-RUNNERS.md](docs/GITHUB-RUNNERS.md) - GitHub Actions runner guide
    - ✅ Updated README.md as documentation hub
    - ✅ All documents properly cross-linked
 
@@ -541,30 +543,52 @@ The project now includes comprehensive documentation:
    - Network: F5 BIG-IP for DHCP/DNS
    - Config Server: hsc-ctsc-config.health.unm.edu
    - Repository Server: hsc-ctsc-repository.health.unm.edu
+   - GitHub Enterprise for Actions runners
 
-### 🚧 Next Steps (To Be Implemented)
+4. **GitHub Actions Runner Implementation**:
+   - ✅ Complete rewrite of github role for Actions runners (not Gitea)
+   - ✅ Enterprise-ready runner deployment with 4 runners per server
+   - ✅ Ephemeral runners with security hardening
+   - ✅ Comprehensive monitoring and maintenance automation
+   - ✅ Interactive registration wizard and management tools
+   - ✅ Full documentation and operational procedures
 
-1. **Create Profile Directories**:
-   ```bash
-   profiles/config-bootstrap/      # Self-contained config server
-   profiles/repository-bootstrap/  # Repository server (uses config)
-   profiles/github-server/         # Standard role profile
-   profiles/tools-server/          # Standard role profile
-   profiles/artifacts-server/      # Standard role profile
-   ```
+### ✅ Recently Completed (Bootstrap & Deployment)
 
-2. **Move Ansible Roles**:
-   - Move `/app/share/on-prem-examples/ansible/` → `/app/ansible/`
-   - Move `/app/share/on-prem-examples/config-server/` → `/app/config-server/`
-   - Remove `/app/share/on-prem-examples/` directory
+1. **Profile Directories Created**:
+   - ✅ `profiles/config-bootstrap/` - Self-contained config server
+   - ✅ `profiles/repository-bootstrap/` - Repository server
+   - ✅ `profiles/github-server/` - GitHub Actions runners
+   - ✅ `profiles/tools-server/` - Development tools
+   - ✅ `profiles/artifacts-server/` - Package repository
 
-3. **Create Bootstrap ISOs**:
-   - Config server bootstrap ISO (self-contained, no dependencies)
-   - Repository server bootstrap ISO (can use config server)
+2. **Ansible Infrastructure**:
+   - ✅ Moved to `/app/ansible/` with proper structure
+   - ✅ Created comprehensive roles for all server types
+   - ✅ Implemented pull-based configuration
 
-4. **Create Standard Role ISOs**:
-   - Implement cloud-init metadata for role assignment
-   - Remove MAC address mapping approach
+3. **Deployment Automation**:
+   - ✅ PowerShell scripts for Windows/Hyper-V
+   - ✅ Docker-based ISO building
+   - ✅ Role-based ISO generation
+
+### 🚧 Potential Future Enhancements
+
+1. **Advanced Runner Features**:
+   - Actions Runner Controller (Kubernetes)
+   - GPU-enabled runners for ML workloads
+   - Autoscaling based on queue depth
+   - Multi-architecture support (ARM64)
+
+2. **Security Enhancements**:
+   - HashiCorp Vault integration for secrets
+   - SIEM integration for audit logs
+   - Compliance scanning automation
+
+3. **Operational Improvements**:
+   - Web UI for ISO generation
+   - Centralized monitoring dashboard
+   - Automated disaster recovery
    - Each ISO embeds its role in metadata
 
 5. **PowerShell Deployment Scripts**:

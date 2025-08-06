@@ -1,5 +1,5 @@
 #cloud-config
-# Standard role-based configuration for GitHub Server
+# Standard role-based configuration for GitHub Actions Runner Server
 # Uses cloud-init metadata to determine role and pulls config from config server
 
 version: 1

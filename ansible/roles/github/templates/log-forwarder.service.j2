@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# GitHub Runner Log Forwarder Service
+
+[Unit]
+Description=GitHub Runner Log Forwarder
+After=network-online.target rsyslog.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/forward-runner-logs
+ExecStop=/bin/bash -c 'if [ -f /var/lib/github-runner/log-forwarder.state ]; then while read pid; do kill $pid 2>/dev/null || true; done < /var/lib/github-runner/log-forwarder.state; fi'
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

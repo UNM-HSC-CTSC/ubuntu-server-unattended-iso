@@ -1,0 +1,175 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Cleanup script for GitHub Actions runners
+
+set -euo pipefail
+
+LOG_FILE="/var/log/github-runner/cleanup.log"
+DRY_RUN="${1:-false}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+log "Starting runner cleanup (dry_run=$DRY_RUN)"
+
+# Statistics
+CLEANED_WORK_DIRS=0
+CLEANED_LOGS=0
+CLEANED_TEMP=0
+SPACE_FREED=0
+
+# Cleanup work directories
+if [ "{{ cleanup_work_dirs }}" == "true" ]; then
+    log "Cleaning work directories older than {{ cleanup_work_dir_age_days }} days..."
+    
+    for i in $(seq 1 {{ runner_count }}); do
+        RUNNER_USER="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+        WORK_DIR="/home/$RUNNER_USER/work"
+        
+        if [ -d "$WORK_DIR" ]; then
+            # Skip if runner is busy
+            if pgrep -u "$RUNNER_USER" -f "Runner.Worker" > /dev/null 2>&1; then
+                log "  Skipping runner $i (busy)"
+                continue
+            fi
+            
+            # Find old work directories
+            while IFS= read -r -d '' dir; do
+                SIZE=$(du -sb "$dir" | cut -f1)
+                SPACE_FREED=$((SPACE_FREED + SIZE))
+                CLEANED_WORK_DIRS=$((CLEANED_WORK_DIRS + 1))
+                
+                if [ "$DRY_RUN" == "false" ]; then
+                    rm -rf "$dir"
+                    log "  Removed: $dir ($(numfmt --to=iec $SIZE))"
+                else
+                    log "  Would remove: $dir ($(numfmt --to=iec $SIZE))"
+                fi
+            done < <(find "$WORK_DIR" -maxdepth 2 -type d -name "_work" -mtime +{{ cleanup_work_dir_age_days }} -print0 2>/dev/null)
+            
+            # Clean temporary directories
+            for temp_dir in "_temp" "_actions" "_tool"; do
+                if [ -d "$WORK_DIR/$temp_dir" ]; then
+                    while IFS= read -r -d '' file; do
+                        SIZE=$(stat -c%s "$file" 2>/dev/null || echo 0)
+                        SPACE_FREED=$((SPACE_FREED + SIZE))
+                        CLEANED_TEMP=$((CLEANED_TEMP + 1))
+                        
+                        if [ "$DRY_RUN" == "false" ]; then
+                            rm -f "$file"
+                        fi
+                    done < <(find "$WORK_DIR/$temp_dir" -type f -mtime +1 -print0 2>/dev/null)
+                fi
+            done
+        fi
+    done
+fi
+
+# Cleanup old logs
+if [ "{{ cleanup_logs }}" == "true" ]; then
+    log "Cleaning logs older than {{ log_retention_days }} days..."
+    
+    # Runner diagnostic logs
+    for i in $(seq 1 {{ runner_count }}); do
+        RUNNER_USER="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+        DIAG_DIR="/home/$RUNNER_USER/actions-runner/_diag"
+        
+        if [ -d "$DIAG_DIR" ]; then
+            while IFS= read -r -d '' log_file; do
+                SIZE=$(stat -c%s "$log_file" 2>/dev/null || echo 0)
+                SPACE_FREED=$((SPACE_FREED + SIZE))
+                CLEANED_LOGS=$((CLEANED_LOGS + 1))
+                
+                if [ "$DRY_RUN" == "false" ]; then
+                    rm -f "$log_file"
+                else
+                    log "  Would remove: $log_file"
+                fi
+            done < <(find "$DIAG_DIR" -name "*.log" -mtime +{{ log_retention_days }} -print0 2>/dev/null)
+        fi
+    done
+    
+    # System logs
+    if [ -d "/var/log/github-runner" ]; then
+        while IFS= read -r -d '' log_file; do
+            SIZE=$(stat -c%s "$log_file" 2>/dev/null || echo 0)
+            SPACE_FREED=$((SPACE_FREED + SIZE))
+            CLEANED_LOGS=$((CLEANED_LOGS + 1))
+            
+            if [ "$DRY_RUN" == "false" ]; then
+                rm -f "$log_file"
+            fi
+        done < <(find "/var/log/github-runner" -name "*.log.*" -mtime +{{ log_retention_days }} -print0 2>/dev/null)
+    fi
+    
+    # Truncate large active logs
+    for log_file in /var/log/github-runner/*.log; do
+        if [ -f "$log_file" ]; then
+            SIZE=$(stat -c%s "$log_file")
+            MAX_SIZE=$(({{ cleanup_log_size_mb }} * 1048576))
+            
+            if [ $SIZE -gt $MAX_SIZE ]; then
+                if [ "$DRY_RUN" == "false" ]; then
+                    tail -n 10000 "$log_file" > "$log_file.tmp"
+                    mv "$log_file.tmp" "$log_file"
+                    log "  Truncated: $log_file (was $(numfmt --to=iec $SIZE))"
+                else
+                    log "  Would truncate: $log_file ($(numfmt --to=iec $SIZE))"
+                fi
+            fi
+        fi
+    done
+fi
+
+# Check disk usage and perform aggressive cleanup if needed
+DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ $DISK_USAGE -gt {{ cleanup_disk_threshold_percent }} ]; then
+    log "WARNING: Disk usage is ${DISK_USAGE}%, performing aggressive cleanup..."
+    
+    # Remove all work directories (except running jobs)
+    for i in $(seq 1 {{ runner_count }}); do
+        RUNNER_USER="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+        WORK_DIR="/home/$RUNNER_USER/work"
+        
+        if [ -d "$WORK_DIR" ] && ! pgrep -u "$RUNNER_USER" -f "Runner.Worker" > /dev/null 2>&1; then
+            if [ "$DRY_RUN" == "false" ]; then
+                find "$WORK_DIR" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+                log "  Cleaned all work dirs for runner $i"
+            fi
+        fi
+    done
+    
+    # Clear package caches
+    if [ "$DRY_RUN" == "false" ]; then
+        apt-get clean >/dev/null 2>&1 || true
+        log "  Cleaned APT cache"
+    fi
+fi
+
+# Summary
+log "Cleanup complete:"
+log "  Work directories cleaned: $CLEANED_WORK_DIRS"
+log "  Temp files cleaned: $CLEANED_TEMP"
+log "  Log files cleaned: $CLEANED_LOGS"
+log "  Space freed: $(numfmt --to=iec $SPACE_FREED)"
+log "  Current disk usage: ${DISK_USAGE}%"
+
+# Write metrics
+if [ "$DRY_RUN" == "false" ]; then
+    cat > /var/lib/prometheus/node-exporter/github_runner_cleanup.prom <<EOF
+# HELP github_runner_cleanup_last_run Last cleanup run timestamp
+# TYPE github_runner_cleanup_last_run gauge
+github_runner_cleanup_last_run $(date +%s)
+
+# HELP github_runner_cleanup_space_freed_bytes Space freed by last cleanup
+# TYPE github_runner_cleanup_space_freed_bytes gauge
+github_runner_cleanup_space_freed_bytes $SPACE_FREED
+
+# HELP github_runner_cleanup_items_removed Items removed in last cleanup
+# TYPE github_runner_cleanup_items_removed gauge
+github_runner_cleanup_items_removed{type="work_dirs"} $CLEANED_WORK_DIRS
+github_runner_cleanup_items_removed{type="temp_files"} $CLEANED_TEMP
+github_runner_cleanup_items_removed{type="logs"} $CLEANED_LOGS
+EOF
+fi

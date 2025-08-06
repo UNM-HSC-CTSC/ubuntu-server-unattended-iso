@@ -1,0 +1,211 @@
+---
+# Set up monitoring and logging for GitHub Actions runners
+
+- name: Install monitoring packages
+  apt:
+    name:
+      - prometheus-node-exporter
+      - rsyslog
+      - logrotate
+    state: present
+
+- name: Create custom node exporter text collector directory
+  file:
+    path: /var/lib/prometheus/node-exporter
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+
+- name: Create runner metrics collector script
+  template:
+    src: collect-runner-metrics.sh.j2
+    dest: /usr/local/bin/collect-runner-metrics
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Set up metrics collection cron job
+  cron:
+    name: "Collect GitHub runner metrics"
+    minute: "*/5"
+    job: "/usr/local/bin/collect-runner-metrics > /var/lib/prometheus/node-exporter/github_runner.prom.$$; mv /var/lib/prometheus/node-exporter/github_runner.prom.$$ /var/lib/prometheus/node-exporter/github_runner.prom"
+    user: prometheus
+
+- name: Configure rsyslog for runner logs
+  copy:
+    dest: /etc/rsyslog.d/50-github-runner.conf
+    content: |
+      # GitHub Actions Runner logging configuration
+      
+      # Create a template for runner logs
+      template(name="RunnerLogFormat" type="string"
+        string="%timestamp% %hostname% %syslogtag% %msg%\n")
+      
+      # Log runner service messages
+      if $programname startswith 'github-runner' then {
+        action(type="omfile" 
+               file="/var/log/github-runner/runner-service.log"
+               template="RunnerLogFormat")
+        stop
+      }
+      
+      # Log docker messages related to runners
+      if $programname == 'dockerd' and $msg contains 'runner' then {
+        action(type="omfile"
+               file="/var/log/github-runner/docker.log"
+               template="RunnerLogFormat")
+      }
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart rsyslog
+
+- name: Create log directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: syslog
+    group: adm
+    mode: '0755'
+  loop:
+    - /var/log/github-runner
+    - /var/log/github-runner/metrics
+
+- name: Configure log forwarding script
+  template:
+    src: forward-logs.sh.j2
+    dest: /usr/local/bin/forward-runner-logs
+    owner: root
+    group: root
+    mode: '0755'
+  when: log_aggregator_host is defined
+
+- name: Set up log forwarding service
+  template:
+    src: log-forwarder.service.j2
+    dest: /etc/systemd/system/runner-log-forwarder.service
+    owner: root
+    group: root
+    mode: '0644'
+  when: log_aggregator_host is defined
+  notify:
+    - reload systemd
+    - restart runner-log-forwarder
+
+- name: Create monitoring dashboard config
+  copy:
+    dest: /var/lib/prometheus/node-exporter/github_runner_info.prom
+    content: |
+      # HELP github_runner_info GitHub runner information
+      # TYPE github_runner_info gauge
+      github_runner_info{version="{{ runner_version }}",count="{{ runner_count }}",mode="ephemeral"} 1
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+
+- name: Set up runner event tracking
+  template:
+    src: track-runner-events.sh.j2
+    dest: /usr/local/bin/track-runner-events
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create alert rules for monitoring
+  copy:
+    dest: /etc/prometheus/github-runner-alerts.yml
+    content: |
+      groups:
+        - name: github_runner
+          interval: 30s
+          rules:
+            - alert: RunnerDown
+              expr: github_runner_status == 0
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "GitHub runner is down"
+                description: "Runner {{ $labels.runner }} has been down for 5 minutes"
+            
+            - alert: RunnerHighCPU
+              expr: github_runner_cpu_percent > 90
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "GitHub runner high CPU usage"
+                description: "Runner {{ $labels.runner }} CPU usage is above 90%"
+            
+            - alert: RunnerDiskFull
+              expr: github_runner_disk_free_bytes < 1073741824
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "GitHub runner disk space low"
+                description: "Runner {{ $labels.runner }} has less than 1GB free disk space"
+            
+            - alert: RunnerJobStuck
+              expr: github_runner_job_duration_seconds > 3600
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "GitHub runner job stuck"
+                description: "Runner {{ $labels.runner }} has a job running for over 1 hour"
+    owner: root
+    group: root
+    mode: '0644'
+  when: prometheus_config_dir is defined
+
+- name: Create monitoring documentation
+  copy:
+    dest: /opt/github-runner/MONITORING.md
+    content: |
+      # GitHub Runner Monitoring
+      
+      ## Metrics Available
+      
+      The following metrics are exported to Prometheus:
+      
+      - `github_runner_status` - Runner online/offline status (0/1)
+      - `github_runner_busy` - Runner busy status (0/1)
+      - `github_runner_jobs_total` - Total jobs executed
+      - `github_runner_jobs_failed` - Failed jobs count
+      - `github_runner_cpu_percent` - CPU usage percentage
+      - `github_runner_memory_bytes` - Memory usage in bytes
+      - `github_runner_disk_free_bytes` - Free disk space in bytes
+      - `github_runner_job_duration_seconds` - Current job duration
+      
+      ## Log Locations
+      
+      - Service logs: `/var/log/github-runner/runner-service.log`
+      - Docker logs: `/var/log/github-runner/docker.log`
+      - Job logs: `/home/runner*/work/_diag/*.log`
+      - Metrics: `/var/log/github-runner/metrics/`
+      
+      ## Monitoring Commands
+      
+      ```bash
+      # Check metrics
+      curl -s localhost:9100/metrics | grep github_runner
+      
+      # View recent events
+      tail -f /var/log/github-runner/runner-service.log
+      
+      # Check runner resource usage
+      systemctl status github-runner@* --no-pager
+      ```
+      
+      ## Alerts
+      
+      Configured alerts:
+      - Runner down for 5 minutes
+      - High CPU usage (>90%) for 10 minutes
+      - Low disk space (<1GB)
+      - Job stuck (>1 hour)
+    owner: root
+    group: root
+    mode: '0644'

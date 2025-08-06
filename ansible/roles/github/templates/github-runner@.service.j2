@@ -1,0 +1,73 @@
+# {{ ansible_managed }}
+# GitHub Actions Runner Service (instance %i)
+
+[Unit]
+Description=GitHub Actions Runner %i
+After=network-online.target docker.service
+Wants=network-online.target
+{% if vault_enabled %}
+After=vault-agent.service
+Wants=vault-agent.service
+{% endif %}
+
+[Service]
+Type=simple
+User=runner%i
+Group=runner%i
+WorkingDirectory=/home/runner%i/actions-runner
+
+# Environment
+Environment="RUNNER_ALLOW_RUNASROOT=0"
+Environment="DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1"
+{% if proxy_enabled %}
+Environment="HTTP_PROXY={{ proxy_http }}"
+Environment="HTTPS_PROXY={{ proxy_https }}"
+Environment="NO_PROXY={{ proxy_no_proxy }}"
+{% endif %}
+{% for key, value in runner_env_vars.items() %}
+Environment="{{ key }}={{ value }}"
+{% endfor %}
+
+# Resource limits
+{% if runner_cpu_limit %}
+CPUQuota={{ runner_cpu_limit }}00%
+{% endif %}
+{% if runner_memory_limit %}
+MemoryLimit={{ runner_memory_limit }}
+{% endif %}
+
+# Security
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/home/runner%i
+{% if docker_enabled %}
+ReadWritePaths=/var/run/docker.sock
+{% endif %}
+ReadWritePaths=/var/log/github-runner
+
+# Process
+ExecStartPre=/bin/bash -c 'if [ ! -f .runner ]; then echo "Runner not configured"; exit 1; fi'
+{% if runner_pre_job_script %}
+ExecStartPre=/bin/bash -c '{{ runner_pre_job_script }}'
+{% endif %}
+ExecStart=/home/runner%i/actions-runner/run.sh{% if runner_ephemeral %} --once{% endif %}
+{% if runner_post_job_script %}
+ExecStopPost=/bin/bash -c '{{ runner_post_job_script }}'
+{% endif %}
+
+# Restart policy
+Restart=always
+RestartSec={{ service_restart_sec }}
+StartLimitInterval={{ service_start_limit_interval }}
+StartLimitBurst={{ service_start_limit_burst }}
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=github-runner-%i
+
+[Install]
+WantedBy=multi-user.target

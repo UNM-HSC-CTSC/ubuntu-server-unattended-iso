@@ -1,0 +1,166 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Backup GitHub Actions runner configurations
+
+set -euo pipefail
+
+BACKUP_DIR="/var/backups/github-runner"
+BACKUP_RETENTION_DAYS=7
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Create backup directory
+mkdir -p "$BACKUP_DIR"
+
+log "Starting GitHub runner backup..."
+
+# Create temporary backup directory
+TEMP_BACKUP="$BACKUP_DIR/backup-$TIMESTAMP"
+mkdir -p "$TEMP_BACKUP"
+
+# Backup runner configurations
+log "Backing up runner configurations..."
+for i in $(seq 1 {{ runner_count }}); do
+    RUNNER_USER="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+    RUNNER_HOME="/home/$RUNNER_USER"
+    
+    if [ -f "$RUNNER_HOME/actions-runner/.runner" ]; then
+        mkdir -p "$TEMP_BACKUP/runner$i"
+        
+        # Copy configuration files
+        cp "$RUNNER_HOME/actions-runner/.runner" "$TEMP_BACKUP/runner$i/" 2>/dev/null || true
+        cp "$RUNNER_HOME/actions-runner/.credentials" "$TEMP_BACKUP/runner$i/" 2>/dev/null || true
+        cp "$RUNNER_HOME/actions-runner/.credentials_rsaparams" "$TEMP_BACKUP/runner$i/" 2>/dev/null || true
+        
+        # Save service status
+        systemctl is-active github-runner@$i > "$TEMP_BACKUP/runner$i/service-status" 2>/dev/null || true
+        
+        log "  Runner $i configuration backed up"
+    else
+        log "  Runner $i not configured, skipping"
+    fi
+done
+
+# Backup system configuration
+log "Backing up system configuration..."
+mkdir -p "$TEMP_BACKUP/system"
+
+# Copy service files
+cp /etc/systemd/system/github-runner@.service "$TEMP_BACKUP/system/" 2>/dev/null || true
+
+# Copy scripts
+mkdir -p "$TEMP_BACKUP/system/scripts"
+cp /usr/local/bin/runner-* "$TEMP_BACKUP/system/scripts/" 2>/dev/null || true
+cp /usr/local/bin/register-runner "$TEMP_BACKUP/system/scripts/" 2>/dev/null || true
+cp /usr/local/bin/manage-runners "$TEMP_BACKUP/system/scripts/" 2>/dev/null || true
+
+# Copy configuration files
+mkdir -p "$TEMP_BACKUP/system/config"
+cp -r /opt/github-runner/config "$TEMP_BACKUP/system/" 2>/dev/null || true
+cp -r /etc/github-runner "$TEMP_BACKUP/system/" 2>/dev/null || true
+
+# Save package versions
+{
+    echo "=== System Information ==="
+    echo "Date: $(date)"
+    echo "Hostname: $(hostname -f)"
+    echo "Ubuntu Version: $(lsb_release -d | cut -f2)"
+    echo ""
+    echo "=== Runner Version ==="
+    if [ -f /home/runner/actions-runner/config.sh ]; then
+        /home/runner/actions-runner/config.sh --version 2>/dev/null || echo "Unknown"
+    fi
+    echo ""
+    echo "=== Docker Version ==="
+    docker version 2>/dev/null || echo "Docker not available"
+} > "$TEMP_BACKUP/system/versions.txt"
+
+# Create encrypted archive
+log "Creating encrypted backup archive..."
+BACKUP_FILE="$BACKUP_DIR/github-runner-backup-$TIMESTAMP.tar.gz"
+
+# Generate backup password if not exists
+if [ ! -f "$BACKUP_DIR/.backup-password" ]; then
+    openssl rand -base64 32 > "$BACKUP_DIR/.backup-password"
+    chmod 600 "$BACKUP_DIR/.backup-password"
+    log "Generated new backup password (saved in $BACKUP_DIR/.backup-password)"
+fi
+
+# Create compressed archive
+cd "$BACKUP_DIR"
+tar czf "$BACKUP_FILE" "backup-$TIMESTAMP"
+
+# Encrypt if openssl is available
+if command -v openssl >/dev/null 2>&1; then
+    openssl enc -aes-256-cbc -salt -pbkdf2 \
+        -in "$BACKUP_FILE" \
+        -out "$BACKUP_FILE.enc" \
+        -pass file:"$BACKUP_DIR/.backup-password"
+    
+    rm -f "$BACKUP_FILE"
+    BACKUP_FILE="$BACKUP_FILE.enc"
+    log "Backup encrypted"
+fi
+
+# Clean up temporary directory
+rm -rf "$TEMP_BACKUP"
+
+# Set permissions
+chmod 600 "$BACKUP_FILE"
+
+# Create backup inventory
+{
+    echo "=== GitHub Runner Backup Inventory ==="
+    echo "Date: $(date)"
+    echo "File: $BACKUP_FILE"
+    echo "Size: $(du -h "$BACKUP_FILE" | cut -f1)"
+    echo ""
+    echo "Contents:"
+    echo "- Runner configurations ({{ runner_count }} runners)"
+    echo "- System configuration files"
+    echo "- Service definitions"
+    echo "- Management scripts"
+    echo ""
+    echo "To restore:"
+    echo "1. Decrypt (if encrypted):"
+    echo "   openssl enc -aes-256-cbc -d -pbkdf2 -in $BACKUP_FILE -out backup.tar.gz -pass file:$BACKUP_DIR/.backup-password"
+    echo "2. Extract:"
+    echo "   tar xzf backup.tar.gz"
+    echo "3. Restore configurations as needed"
+} > "$BACKUP_DIR/INVENTORY-$TIMESTAMP.txt"
+
+# Clean up old backups
+log "Cleaning up old backups..."
+find "$BACKUP_DIR" -name "github-runner-backup-*" -mtime +$BACKUP_RETENTION_DAYS -delete
+find "$BACKUP_DIR" -name "INVENTORY-*" -mtime +$BACKUP_RETENTION_DAYS -delete
+
+# Create latest symlink
+ln -sf "$BACKUP_FILE" "$BACKUP_DIR/latest-backup"
+
+# Summary
+BACKUP_COUNT=$(ls -1 "$BACKUP_DIR"/github-runner-backup-* 2>/dev/null | wc -l)
+BACKUP_SIZE=$(du -sh "$BACKUP_DIR" | cut -f1)
+
+log "Backup completed successfully"
+log "  File: $BACKUP_FILE"
+log "  Size: $(du -h "$BACKUP_FILE" | cut -f1)"
+log "  Total backups: $BACKUP_COUNT"
+log "  Backup directory size: $BACKUP_SIZE"
+
+# Write metrics
+cat > /var/lib/prometheus/node-exporter/github_runner_backup.prom <<EOF
+# HELP github_runner_backup_last_run Last backup run timestamp
+# TYPE github_runner_backup_last_run gauge
+github_runner_backup_last_run $(date +%s)
+
+# HELP github_runner_backup_size_bytes Size of last backup
+# TYPE github_runner_backup_size_bytes gauge
+github_runner_backup_size_bytes $(stat -c%s "$BACKUP_FILE" 2>/dev/null || echo 0)
+
+# HELP github_runner_backup_count Total number of backups
+# TYPE github_runner_backup_count gauge
+github_runner_backup_count $BACKUP_COUNT
+EOF

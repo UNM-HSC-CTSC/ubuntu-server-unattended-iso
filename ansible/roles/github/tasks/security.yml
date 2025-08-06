@@ -1,0 +1,164 @@
+---
+# Security hardening for GitHub Actions runners
+
+- name: Configure firewall rules
+  ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port | default(omit) }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    direction: "{{ item.direction | default('in') }}"
+    comment: "{{ item.comment | default('') }}"
+  loop:
+    - { rule: deny, direction: in, comment: "Deny all incoming by default" }
+    - { rule: allow, direction: out, comment: "Allow all outgoing" }
+    - { rule: allow, port: 22, comment: "SSH access" }
+    - { rule: allow, direction: out, port: 443, comment: "HTTPS to GitHub Enterprise" }
+    - { rule: allow, direction: out, port: 80, comment: "HTTP to GitHub Enterprise" }
+
+- name: Set runner user security limits
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - "runner soft nofile 65536"
+    - "runner hard nofile 65536"
+    - "runner soft nproc 32768"
+    - "runner hard nproc 32768"
+    - "runner soft memlock unlimited"
+    - "runner hard memlock unlimited"
+
+- name: Create sudoers file for runner management
+  copy:
+    dest: /etc/sudoers.d/github-runner
+    content: |
+      # Allow runner service management without password
+      %github-admins ALL=(ALL) NOPASSWD: /usr/bin/systemctl start github-runner@*, /usr/bin/systemctl stop github-runner@*, /usr/bin/systemctl restart github-runner@*, /usr/bin/systemctl status github-runner@*
+      %github-admins ALL=(ALL) NOPASSWD: /usr/local/bin/runner-*
+    validate: 'visudo -cf %s'
+    mode: '0440'
+
+- name: Create github-admins group
+  group:
+    name: github-admins
+    state: present
+
+- name: Add sysadmin to github-admins group
+  user:
+    name: sysadmin
+    groups: github-admins
+    append: yes
+  ignore_errors: yes
+
+- name: Configure sysctl for runner performance and security
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: yes
+    reload: yes
+  loop:
+    - { name: "fs.file-max", value: "2097152" }
+    - { name: "fs.inotify.max_user_watches", value: "524288" }
+    - { name: "fs.inotify.max_user_instances", value: "512" }
+    - { name: "net.core.somaxconn", value: "32768" }
+    - { name: "net.ipv4.tcp_max_syn_backlog", value: "8192" }
+    - { name: "kernel.pid_max", value: "4194304" }
+    - { name: "kernel.threads-max", value: "4194304" }
+    # Security settings
+    - { name: "kernel.dmesg_restrict", value: "1" }
+    - { name: "kernel.kptr_restrict", value: "2" }
+    - { name: "net.ipv4.conf.all.log_martians", value: "1" }
+    - { name: "net.ipv4.conf.default.log_martians", value: "1" }
+    - { name: "net.ipv4.conf.all.send_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.send_redirects", value: "0" }
+
+- name: Create AppArmor profile for runners
+  copy:
+    dest: /etc/apparmor.d/github-runner
+    content: |
+      #include <tunables/global>
+      
+      profile github-runner flags=(attach_disconnected,mediate_deleted) {
+        #include <abstractions/base>
+        #include <abstractions/bash>
+        #include <abstractions/consoles>
+        #include <abstractions/nameservice>
+        
+        # Runner binaries
+        /home/runner*/actions-runner/** ix,
+        /home/runner*/work/** rwix,
+        
+        # System access
+        /usr/bin/** ix,
+        /bin/** ix,
+        /usr/local/bin/** ix,
+        
+        # Temp files
+        /tmp/** rw,
+        /var/tmp/** rw,
+        
+        # Docker access
+        /var/run/docker.sock rw,
+        
+        # Deny sensitive areas
+        deny /etc/shadow r,
+        deny /etc/gshadow r,
+        deny /root/** rwx,
+        deny /home/*/ssh/** rwx,
+      }
+  register: apparmor_profile
+
+- name: Load AppArmor profile
+  command: apparmor_parser -r /etc/apparmor.d/github-runner
+  when: apparmor_profile.changed
+
+- name: Restrict runner home directory permissions
+  file:
+    path: "/home/runner{{ item if item > 1 else '' }}"
+    mode: '0750'
+    owner: "runner{{ item if item > 1 else '' }}"
+    group: "runner{{ item if item > 1 else '' }}"
+  loop: "{{ range(1, runner_count + 1) | list }}"
+
+- name: Create secure work directory with restricted permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '1770'
+    owner: root
+    group: docker
+  loop:
+    - /var/lib/github-runner
+    - /var/lib/github-runner/work
+
+- name: Configure fail2ban for SSH protection
+  copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 5
+      
+      [sshd]
+      enabled = true
+      port = ssh
+      logpath = /var/log/auth.log
+      backend = systemd
+  notify: restart fail2ban
+
+- name: Set up audit logging for runner activities
+  copy:
+    dest: /etc/audit/rules.d/github-runner.rules
+    content: |
+      # Monitor runner configuration changes
+      -w /home/runner/actions-runner/ -p wa -k github_runner_config
+      -w /home/runner/.runner -p wa -k github_runner_token
+      
+      # Monitor runner execution
+      -w /home/runner/work/ -p rwxa -k github_runner_work
+      
+      # Monitor service changes
+      -w /etc/systemd/system/github-runner@.service -p wa -k github_runner_service
+  notify: restart auditd

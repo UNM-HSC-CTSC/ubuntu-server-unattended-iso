@@ -1,0 +1,136 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Collect metrics for GitHub Actions runners
+
+set -euo pipefail
+
+# Output Prometheus metrics format
+output_metric() {
+    local name=$1
+    local value=$2
+    local help=$3
+    local type=${4:-gauge}
+    local labels=${5:-}
+    
+    echo "# HELP $name $help"
+    echo "# TYPE $name $type"
+    if [ -n "$labels" ]; then
+        echo "${name}{${labels}} $value"
+    else
+        echo "$name $value"
+    fi
+}
+
+# Collect runner metrics
+TOTAL_RUNNERS={{ runner_count }}
+RUNNERS_ONLINE=0
+RUNNERS_BUSY=0
+RUNNERS_CONFIGURED=0
+TOTAL_JOBS=0
+FAILED_JOBS=0
+
+for i in $(seq 1 $TOTAL_RUNNERS); do
+    RUNNER_USER="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+    RUNNER_HOME="/home/$RUNNER_USER"
+    
+    # Check if configured
+    if [ -f "$RUNNER_HOME/actions-runner/.runner" ]; then
+        RUNNERS_CONFIGURED=$((RUNNERS_CONFIGURED + 1))
+        RUNNER_NAME=$(jq -r .name "$RUNNER_HOME/actions-runner/.runner" 2>/dev/null || echo "unknown")
+        
+        # Check if online
+        if systemctl is-active --quiet github-runner@$i; then
+            RUNNERS_ONLINE=$((RUNNERS_ONLINE + 1))
+            output_metric "github_runner_status" 1 "Runner online status" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+            
+            # Check if busy
+            if pgrep -u "$RUNNER_USER" -f "Runner.Worker" > /dev/null 2>&1; then
+                RUNNERS_BUSY=$((RUNNERS_BUSY + 1))
+                output_metric "github_runner_busy" 1 "Runner busy status" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+                
+                # Get job duration (approximate)
+                JOB_PID=$(pgrep -u "$RUNNER_USER" -f "Runner.Worker" -n)
+                if [ -n "$JOB_PID" ]; then
+                    JOB_TIME=$(ps -o etimes= -p "$JOB_PID" | tr -d ' ')
+                    output_metric "github_runner_job_duration_seconds" "$JOB_TIME" "Current job duration" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+                fi
+            else
+                output_metric "github_runner_busy" 0 "Runner busy status" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+            fi
+            
+            # CPU usage
+            CPU_USAGE=$(ps -u "$RUNNER_USER" -o %cpu | awk '{s+=$1} END {print s}')
+            output_metric "github_runner_cpu_percent" "${CPU_USAGE:-0}" "Runner CPU usage percentage" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+            
+            # Memory usage
+            MEM_USAGE=$(ps -u "$RUNNER_USER" -o rss | awk '{s+=$1} END {print s*1024}')
+            output_metric "github_runner_memory_bytes" "${MEM_USAGE:-0}" "Runner memory usage in bytes" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+        else
+            output_metric "github_runner_status" 0 "Runner online status" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+        fi
+        
+        # Work directory disk usage
+        if [ -d "$RUNNER_HOME/work" ]; then
+            WORK_SIZE=$(du -sb "$RUNNER_HOME/work" 2>/dev/null | cut -f1 || echo 0)
+            output_metric "github_runner_work_dir_bytes" "$WORK_SIZE" "Runner work directory size" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+            
+            # Free space
+            FREE_SPACE=$(df "$RUNNER_HOME/work" | tail -1 | awk '{print $4*1024}')
+            output_metric "github_runner_disk_free_bytes" "$FREE_SPACE" "Free disk space for runner" "gauge" "runner=\"$RUNNER_NAME\",id=\"$i\""
+        fi
+        
+        # Count jobs from logs
+        if [ -d "$RUNNER_HOME/actions-runner/_diag" ]; then
+            JOB_COUNT=$(find "$RUNNER_HOME/actions-runner/_diag" -name "Worker_*.log" 2>/dev/null | wc -l)
+            TOTAL_JOBS=$((TOTAL_JOBS + JOB_COUNT))
+            output_metric "github_runner_jobs_total" "$JOB_COUNT" "Total jobs executed" "counter" "runner=\"$RUNNER_NAME\",id=\"$i\""
+            
+            # Count failed jobs (approximate)
+            FAILED=$(grep -l "Job completed with result: Failed" "$RUNNER_HOME/actions-runner/_diag/Worker_"*.log 2>/dev/null | wc -l || echo 0)
+            FAILED_JOBS=$((FAILED_JOBS + FAILED))
+            output_metric "github_runner_jobs_failed" "$FAILED" "Failed jobs count" "counter" "runner=\"$RUNNER_NAME\",id=\"$i\""
+        fi
+    fi
+done
+
+# Overall metrics
+output_metric "github_runner_total" "$TOTAL_RUNNERS" "Total number of runner slots"
+output_metric "github_runner_configured" "$RUNNERS_CONFIGURED" "Number of configured runners"
+output_metric "github_runner_online" "$RUNNERS_ONLINE" "Number of online runners"
+output_metric "github_runner_busy" "$RUNNERS_BUSY" "Number of busy runners"
+output_metric "github_runner_available" "$((RUNNERS_ONLINE - RUNNERS_BUSY))" "Number of available runners"
+
+# Docker metrics
+if [ "{{ docker_enabled }}" == "true" ] && command -v docker >/dev/null 2>&1; then
+    if systemctl is-active --quiet docker; then
+        # Container count
+        CONTAINER_COUNT=$(docker ps -q | wc -l)
+        output_metric "github_runner_docker_containers" "$CONTAINER_COUNT" "Number of running Docker containers"
+        
+        # Docker disk usage
+        DOCKER_DISK=$(docker system df --format 'json' | jq -r '.Images[0].Size' | sed 's/[^0-9.]//g' || echo 0)
+        if [ -n "$DOCKER_DISK" ] && [ "$DOCKER_DISK" != "0" ]; then
+            # Convert GB to bytes (approximate)
+            DOCKER_BYTES=$(echo "$DOCKER_DISK * 1073741824" | bc | cut -d. -f1)
+            output_metric "github_runner_docker_disk_bytes" "$DOCKER_BYTES" "Docker disk usage"
+        fi
+    fi
+fi
+
+# System metrics specific to runners
+LOAD_1MIN=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
+output_metric "github_runner_system_load1" "$LOAD_1MIN" "System load average (1 minute)"
+
+# Network connectivity check
+if curl -s -o /dev/null -w "%{http_code}" --max-time 5 {{ github_enterprise_url }}/api/v3 | grep -q "200\|401"; then
+    output_metric "github_runner_api_reachable" 1 "GitHub API reachability"
+else
+    output_metric "github_runner_api_reachable" 0 "GitHub API reachability"
+fi
+
+# Maintenance mode
+if [ -f /etc/github-runner/maintenance.flag ]; then
+    output_metric "github_runner_maintenance_mode" 1 "Maintenance mode status"
+else
+    output_metric "github_runner_maintenance_mode" 0 "Maintenance mode status"
+fi

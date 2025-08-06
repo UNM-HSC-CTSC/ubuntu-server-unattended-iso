@@ -1,0 +1,104 @@
+---
+# Default variables for GitHub Actions runners
+
+# GitHub Enterprise configuration
+# These can be overridden during deployment or via cloud-init metadata
+github_enterprise_url: "{{ lookup('env', 'GITHUB_ENTERPRISE_URL') | default('https://github.company.com', true) }}"
+github_enterprise_api_url: "{{ lookup('env', 'GITHUB_ENTERPRISE_API_URL') | default(github_enterprise_url + '/api/v3', true) }}"
+
+# Support for GitHub.com (if not using Enterprise)
+github_com_url: "https://github.com"
+github_com_api_url: "https://api.github.com"
+
+# Determine which GitHub to use
+github_url: "{{ github_enterprise_url if use_enterprise | default(true) else github_com_url }}"
+github_api_url: "{{ github_enterprise_api_url if use_enterprise | default(true) else github_com_api_url }}"
+use_enterprise: "{{ lookup('env', 'USE_GITHUB_ENTERPRISE') | default(true, true) }}"
+
+# Runner configuration
+runner_count: 4
+runner_labels: "self-hosted,linux,x64,ubuntu-24.04,docker"
+runner_ephemeral: true
+runner_group: "default"
+runner_work_dir: "/home/runner/work"
+
+# Runner features
+docker_enabled: true
+docker_privileged: false
+cache_enabled: true
+tools_cache_dir: "/opt/hostedtoolcache"
+
+# Security settings
+firewall_enabled: true
+apparmor_enabled: true
+audit_logging: true
+fail2ban_enabled: true
+
+# Resource limits per runner
+runner_cpu_limit: "2"
+runner_memory_limit: "4G"
+runner_disk_quota: "50G"
+
+# Maintenance settings
+cleanup_schedule: "daily"
+cleanup_work_dirs: true
+cleanup_docker: true
+cleanup_logs: true
+auto_update_runners: false
+
+# Monitoring settings
+monitoring_enabled: true
+metrics_port: 9100
+log_retention_days: 30
+
+# Network settings
+proxy_enabled: false
+proxy_http: ""
+proxy_https: ""
+proxy_no_proxy: "localhost,127.0.0.1"
+
+# Package versions (leave empty for latest)
+runner_version: ""
+docker_version: ""
+
+# Advanced settings
+runner_extra_labels: []
+runner_env_vars: {}
+runner_pre_job_script: ""
+runner_post_job_script: ""
+
+# Integration settings
+vault_enabled: false
+vault_addr: ""
+vault_token_path: "secret/github-runner/tokens"
+
+# Log aggregation (optional)
+log_aggregator_enabled: false
+log_aggregator_host: ""
+log_aggregator_port: 514
+
+# Prometheus settings (optional)
+prometheus_enabled: false
+prometheus_config_dir: "/etc/prometheus"
+
+# Custom CA certificates (optional)
+custom_ca_certs: []
+
+# Runner user configuration
+runner_user_shell: "/bin/bash"
+runner_user_groups:
+  - docker
+
+# Service configuration
+service_restart_sec: 10
+service_start_limit_interval: 60
+service_start_limit_burst: 5
+
+# Cleanup thresholds
+cleanup_disk_threshold_percent: 80
+cleanup_work_dir_age_days: 7
+cleanup_log_size_mb: 100
+
+# Performance tuning
+parallel_downloads: 4
+git_lfs_skip_smudge: false

@@ -1,0 +1,88 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Manage GitHub Actions runners
+
+set -euo pipefail
+
+ACTION="${1:-status}"
+RUNNER="${2:-all}"
+
+usage() {
+    echo "Usage: $0 {start|stop|restart|status} [runner_number|all]"
+    echo ""
+    echo "Examples:"
+    echo "  $0 status          # Show status of all runners"
+    echo "  $0 start all       # Start all runners"
+    echo "  $0 stop 2          # Stop runner 2"
+    echo "  $0 restart 1       # Restart runner 1"
+    exit 1
+}
+
+# Validate runner number
+validate_runner() {
+    local num=$1
+    if [[ ! "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt {{ runner_count }} ]; then
+        echo "ERROR: Invalid runner number: $num (must be 1-{{ runner_count }})"
+        exit 1
+    fi
+}
+
+# Perform action on single runner
+runner_action() {
+    local action=$1
+    local num=$2
+    
+    case "$action" in
+        start)
+            echo "Starting runner $num..."
+            systemctl start github-runner@$num
+            ;;
+        stop)
+            echo "Stopping runner $num..."
+            systemctl stop github-runner@$num
+            ;;
+        restart)
+            echo "Restarting runner $num..."
+            systemctl restart github-runner@$num
+            ;;
+        status)
+            systemctl status github-runner@$num --no-pager --lines=10
+            ;;
+    esac
+}
+
+# Main logic
+case "$ACTION" in
+    start|stop|restart|status)
+        if [ "$RUNNER" == "all" ]; then
+            echo "Performing $ACTION on all runners..."
+            for i in $(seq 1 {{ runner_count }}); do
+                runner_action "$ACTION" "$i"
+                echo ""
+            done
+        else
+            validate_runner "$RUNNER"
+            runner_action "$ACTION" "$RUNNER"
+        fi
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+# Show summary for start/stop/restart
+if [ "$ACTION" != "status" ]; then
+    echo ""
+    echo "=== Runner Summary ==="
+    ONLINE=0
+    for i in $(seq 1 {{ runner_count }}); do
+        if systemctl is-active --quiet github-runner@$i; then
+            echo "Runner $i: Online"
+            ONLINE=$((ONLINE + 1))
+        else
+            echo "Runner $i: Offline"
+        fi
+    done
+    echo ""
+    echo "Total: {{ runner_count }}, Online: $ONLINE, Offline: $(({{ runner_count }} - ONLINE))"
+fi

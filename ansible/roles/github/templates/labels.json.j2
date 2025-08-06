@@ -1,0 +1,22 @@
+{
+  "_comment": "{{ ansible_managed }}",
+  "description": "Default labels for GitHub Actions runners",
+  "labels": [
+    {% for label in runner_labels.split(',') %}
+    "{{ label.strip() }}"{% if not loop.last %},{% endif %}
+    {% endfor %}
+    {% if runner_extra_labels %}
+    ,
+    {% for label in runner_extra_labels %}
+    "{{ label }}"{% if not loop.last %},{% endif %}
+    {% endfor %}
+    {% endif %}
+  ],
+  "runner_group": "{{ runner_group }}",
+  "features": {
+    "docker": {{ docker_enabled | lower }},
+    "docker_privileged": {{ docker_privileged | lower }},
+    "ephemeral": {{ runner_ephemeral | lower }},
+    "cache": {{ cache_enabled | lower }}
+  }
+}

@@ -1,0 +1,158 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Health check for GitHub Actions runners
+
+set -euo pipefail
+
+# Exit codes
+EXIT_OK=0
+EXIT_WARNING=1
+EXIT_CRITICAL=2
+
+# Thresholds
+DISK_WARNING={{ cleanup_disk_threshold_percent }}
+CPU_WARNING=80
+MEMORY_WARNING=80
+
+# Check results
+WARNINGS=0
+CRITICALS=0
+MESSAGES=()
+
+# Add message
+add_message() {
+    local level=$1
+    local message=$2
+    MESSAGES+=("[$level] $message")
+    case $level in
+        WARNING) WARNINGS=$((WARNINGS + 1)) ;;
+        CRITICAL) CRITICALS=$((CRITICALS + 1)) ;;
+    esac
+}
+
+# Check runner services
+echo "Checking runner services..."
+RUNNERS_TOTAL={{ runner_count }}
+RUNNERS_ONLINE=0
+RUNNERS_CONFIGURED=0
+
+for i in $(seq 1 $RUNNERS_TOTAL); do
+    if [ -f "/home/runner$( [ $i -eq 1 ] && echo '' || echo $i )/actions-runner/.runner" ]; then
+        RUNNERS_CONFIGURED=$((RUNNERS_CONFIGURED + 1))
+        if systemctl is-active --quiet github-runner@$i; then
+            RUNNERS_ONLINE=$((RUNNERS_ONLINE + 1))
+        fi
+    fi
+done
+
+if [ $RUNNERS_ONLINE -eq 0 ]; then
+    add_message "CRITICAL" "No runners online (0/$RUNNERS_TOTAL)"
+elif [ $RUNNERS_ONLINE -lt $((RUNNERS_TOTAL / 2)) ]; then
+    add_message "WARNING" "Only $RUNNERS_ONLINE/$RUNNERS_TOTAL runners online"
+else
+    add_message "OK" "$RUNNERS_ONLINE/$RUNNERS_TOTAL runners online"
+fi
+
+# Check disk space
+echo "Checking disk space..."
+DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ $DISK_USAGE -gt 90 ]; then
+    add_message "CRITICAL" "Disk usage critical: ${DISK_USAGE}%"
+elif [ $DISK_USAGE -gt $DISK_WARNING ]; then
+    add_message "WARNING" "Disk usage high: ${DISK_USAGE}%"
+else
+    add_message "OK" "Disk usage: ${DISK_USAGE}%"
+fi
+
+# Check work directory sizes
+echo "Checking work directories..."
+for i in $(seq 1 $RUNNERS_TOTAL); do
+    WORK_DIR="/home/runner$( [ $i -eq 1 ] && echo '' || echo $i )/work"
+    if [ -d "$WORK_DIR" ]; then
+        SIZE_MB=$(du -sm "$WORK_DIR" 2>/dev/null | cut -f1 || echo 0)
+        if [ $SIZE_MB -gt 10240 ]; then  # 10GB
+            add_message "WARNING" "Runner $i work dir large: ${SIZE_MB}MB"
+        fi
+    fi
+done
+
+# Check Docker
+if [ "{{ docker_enabled }}" == "true" ]; then
+    echo "Checking Docker..."
+    if ! systemctl is-active --quiet docker; then
+        add_message "CRITICAL" "Docker service is not running"
+    else
+        # Check Docker disk usage
+        DOCKER_USAGE=$(docker system df --format 'json' | jq -r '.Images[0].Size' | sed 's/GB//' | cut -d. -f1 || echo 0)
+        if [ "$DOCKER_USAGE" -gt 50 ]; then
+            add_message "WARNING" "Docker using ${DOCKER_USAGE}GB disk space"
+        fi
+        
+        # Check for stopped containers
+        STOPPED_CONTAINERS=$(docker ps -aq --filter "status=exited" | wc -l)
+        if [ $STOPPED_CONTAINERS -gt 20 ]; then
+            add_message "WARNING" "$STOPPED_CONTAINERS stopped containers (run docker-cleanup)"
+        fi
+    fi
+fi
+
+# Check CPU load
+echo "Checking system load..."
+LOAD_1MIN=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
+CPU_COUNT=$(nproc)
+LOAD_PER_CPU=$(echo "scale=2; $LOAD_1MIN / $CPU_COUNT * 100" | bc | cut -d. -f1)
+
+if [ $LOAD_PER_CPU -gt 100 ]; then
+    add_message "CRITICAL" "System overloaded: ${LOAD_1MIN} (${LOAD_PER_CPU}% per CPU)"
+elif [ $LOAD_PER_CPU -gt $CPU_WARNING ]; then
+    add_message "WARNING" "High system load: ${LOAD_1MIN} (${LOAD_PER_CPU}% per CPU)"
+fi
+
+# Check memory
+echo "Checking memory..."
+MEMORY_USAGE=$(free | grep Mem | awk '{print int($3/$2 * 100)}')
+if [ $MEMORY_USAGE -gt 95 ]; then
+    add_message "CRITICAL" "Memory usage critical: ${MEMORY_USAGE}%"
+elif [ $MEMORY_USAGE -gt $MEMORY_WARNING ]; then
+    add_message "WARNING" "Memory usage high: ${MEMORY_USAGE}%"
+fi
+
+# Check for recent errors
+echo "Checking for errors..."
+for i in $(seq 1 $RUNNERS_TOTAL); do
+    ERROR_COUNT=$(journalctl -u github-runner@$i --since "1 hour ago" -p err --no-pager 2>/dev/null | wc -l)
+    if [ $ERROR_COUNT -gt 10 ]; then
+        add_message "WARNING" "Runner $i has $ERROR_COUNT errors in last hour"
+    fi
+done
+
+# Check connectivity to GitHub
+echo "Checking GitHub connectivity..."
+if ! curl -s -o /dev/null -w "%{http_code}" {{ github_enterprise_url }}/api/v3 | grep -q "200\|401"; then
+    add_message "CRITICAL" "Cannot connect to GitHub Enterprise"
+fi
+
+# Check if maintenance mode
+if [ -f /etc/github-runner/maintenance.flag ]; then
+    add_message "WARNING" "System in maintenance mode"
+fi
+
+# Output results
+echo ""
+echo "=== Health Check Results ==="
+for msg in "${MESSAGES[@]}"; do
+    echo "$msg"
+done
+
+echo ""
+echo "Summary: $CRITICALS critical, $WARNINGS warnings"
+
+# Exit with appropriate code
+if [ $CRITICALS -gt 0 ]; then
+    exit $EXIT_CRITICAL
+elif [ $WARNINGS -gt 0 ]; then
+    exit $EXIT_WARNING
+else
+    echo "All checks passed!"
+    exit $EXIT_OK
+fi

@@ -1,0 +1,188 @@
+---
+# Configure GitHub Actions runners
+
+- name: Create runner configuration script
+  template:
+    src: configure-runner.sh.j2
+    dest: /opt/github-runner/scripts/configure-runner.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create runner registration helper
+  template:
+    src: register-runner.sh.j2
+    dest: /usr/local/bin/register-runner
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create runner status script
+  template:
+    src: runner-status.sh.j2
+    dest: /usr/local/bin/runner-status
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create systemd service template
+  template:
+    src: github-runner@.service.j2
+    dest: /etc/systemd/system/github-runner@.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+
+- name: Create runner environment file template
+  template:
+    src: runner.env.j2
+    dest: /opt/github-runner/config/runner.env.template
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create runner configuration directory for each runner
+  file:
+    path: "/etc/github-runner/runner{{ item if item > 1 else '' }}"
+    state: directory
+    owner: root
+    group: "runner{{ item if item > 1 else '' }}"
+    mode: '0750'
+  loop: "{{ range(1, runner_count + 1) | list }}"
+
+- name: Create runner work directory structure
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: runner
+    group: runner
+    mode: '0755'
+  loop:
+    - /home/runner/work/_temp
+    - /home/runner/work/_actions
+    - /home/runner/work/_tool
+
+- name: Set up runner labels configuration
+  template:
+    src: labels.json.j2
+    dest: /opt/github-runner/config/labels.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create runner management script
+  template:
+    src: manage-runners.sh.j2
+    dest: /usr/local/bin/manage-runners
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create runner health check script
+  template:
+    src: health-check.sh.j2
+    dest: /usr/local/bin/runner-health-check
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Set up runner configuration documentation
+  copy:
+    dest: /opt/github-runner/README.md
+    content: |
+      # GitHub Actions Runner Configuration
+      
+      This server hosts {{ runner_count }} GitHub Actions self-hosted runner(s).
+      
+      ## Quick Start
+      
+      1. Get a registration token from GitHub Enterprise:
+         - Repository: Settings → Actions → Runners → New self-hosted runner
+         - Organization: Settings → Actions → Runners → New self-hosted runner
+         - Enterprise: Settings → Actions → Runners → New self-hosted runner
+      
+      2. Register a runner:
+         ```bash
+         sudo register-runner
+         # Follow the prompts
+         ```
+      
+      3. Check runner status:
+         ```bash
+         sudo runner-status
+         ```
+      
+      ## Management Commands
+      
+      - `register-runner` - Interactive runner registration
+      - `runner-status` - Show status of all runners
+      - `manage-runners` - Start/stop/restart runners
+      - `runner-health-check` - Check runner health
+      
+      ## Configuration Files
+      
+      - Runner configs: `/etc/github-runner/runner*/`
+      - Service files: `/etc/systemd/system/github-runner@*.service`
+      - Logs: `/var/log/github-runner/`
+      
+      ## Security Notes
+      
+      - Runners run as unprivileged users (runner, runner2, etc.)
+      - Each runner has isolated work directories
+      - Ephemeral mode is enabled by default
+      - Work directories are cleaned after each job
+      
+      ## Troubleshooting
+      
+      1. View logs:
+         ```bash
+         sudo journalctl -u github-runner@1 -f
+         ```
+      
+      2. Manual configuration:
+         ```bash
+         sudo -u runner /home/runner/actions-runner/config.sh \\
+           --url {{ github_enterprise_url }} \\
+           --token YOUR_TOKEN \\
+           --ephemeral
+         ```
+      
+      3. Reset runner:
+         ```bash
+         sudo systemctl stop github-runner@1
+         sudo -u runner /home/runner/actions-runner/config.sh remove --token YOUR_TOKEN
+         # Then re-register
+         ```
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create default runner configuration
+  template:
+    src: runner-config.yaml.j2
+    dest: /opt/github-runner/config/default-config.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Set up log rotation for runner logs
+  copy:
+    dest: /etc/logrotate.d/github-runner
+    content: |
+      /var/log/github-runner/*.log {
+          daily
+          rotate 14
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0640 runner runner
+          sharedscripts
+          postrotate
+              systemctl reload rsyslog > /dev/null 2>&1 || true
+          endscript
+      }
+    owner: root
+    group: root
+    mode: '0644'

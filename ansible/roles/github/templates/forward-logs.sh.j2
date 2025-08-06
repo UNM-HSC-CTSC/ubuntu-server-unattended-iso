@@ -1,0 +1,59 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Forward GitHub runner logs to aggregator
+
+set -euo pipefail
+
+LOG_DIR="/var/log/github-runner"
+AGGREGATOR="{{ log_aggregator_host }}:{{ log_aggregator_port }}"
+STATE_FILE="/var/lib/github-runner/log-forwarder.state"
+
+# Ensure state directory exists
+mkdir -p "$(dirname "$STATE_FILE")"
+
+# Forward logs using netcat or logger
+forward_log() {
+    local log_file=$1
+    local tag=$2
+    
+    if command -v logger >/dev/null 2>&1; then
+        # Use logger for syslog
+        tail -F "$log_file" 2>/dev/null | while read line; do
+            logger -t "$tag" -p local0.info -n "${{ log_aggregator_host }}" -P "{{ log_aggregator_port }}" "$line"
+        done &
+    elif command -v nc >/dev/null 2>&1; then
+        # Use netcat for raw forwarding
+        tail -F "$log_file" 2>/dev/null | while read line; do
+            echo "<134>$(date '+%b %d %H:%M:%S') $(hostname) $tag: $line" | nc -u "${{ log_aggregator_host }}" "{{ log_aggregator_port }}"
+        done &
+    else
+        echo "ERROR: Neither logger nor nc available for log forwarding"
+        return 1
+    fi
+    
+    # Save PID
+    echo "$!" >> "$STATE_FILE"
+}
+
+# Stop existing forwarders
+if [ -f "$STATE_FILE" ]; then
+    while read pid; do
+        kill "$pid" 2>/dev/null || true
+    done < "$STATE_FILE"
+    > "$STATE_FILE"
+fi
+
+# Start forwarding logs
+forward_log "$LOG_DIR/runner-service.log" "github-runner-service"
+forward_log "$LOG_DIR/docker.log" "github-runner-docker"
+forward_log "$LOG_DIR/cleanup.log" "github-runner-cleanup"
+
+# Forward individual runner logs
+for i in $(seq 1 {{ runner_count }}); do
+    RUNNER_LOG="/home/runner$( [ $i -eq 1 ] && echo '' || echo $i )/actions-runner/_diag/Runner_$(date +%Y%m%d)-*.log"
+    if ls $RUNNER_LOG >/dev/null 2>&1; then
+        forward_log "$(ls -t $RUNNER_LOG | head -1)" "github-runner-$i"
+    fi
+done
+
+echo "Log forwarding started to $AGGREGATOR"

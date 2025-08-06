@@ -1,5 +1,44 @@
 ---
+# Handlers for GitHub Actions runner role
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+
 - name: restart nginx
-  service:
+  systemd:
     name: nginx
     state: restarted
+
+- name: restart rsyslog
+  systemd:
+    name: rsyslog
+    state: restarted
+
+- name: restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: restart auditd
+  systemd:
+    name: auditd
+    state: restarted
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart runner-log-forwarder
+  systemd:
+    name: runner-log-forwarder
+    state: restarted
+  when: log_aggregator_host is defined
+
+- name: restart github runners
+  systemd:
+    name: "github-runner@{{ item }}"
+    state: restarted
+  loop: "{{ range(1, runner_count + 1) | list }}"

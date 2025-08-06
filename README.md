@@ -22,6 +22,7 @@ A comprehensive system for creating self-configuring Ubuntu Server installations
 - **[Deployment Guide](docs/DEPLOYMENT-GUIDE.md)** - Step-by-step deployment procedures
 - **[Windows Deployment Guide](docs/WINDOWS-DEPLOYMENT.md)** - Complete guide for Windows Server with Hyper-V
 - **[Role Definitions](docs/ROLE-DEFINITIONS.md)** - Available server roles and configurations
+- **[GitHub Runners Guide](docs/GITHUB-RUNNERS.md)** - Comprehensive guide for GitHub Actions runners
 - **[Developer Guide](CLAUDE.md)** - Technical details and design decisions
 
 ## 🎯 Use Cases
@@ -98,7 +99,7 @@ pip3 install pyyaml yamllint
 
 - **Config Server** - Central configuration management
 - **Repository Server** - ISO and package storage
-- **GitHub Server** - On-premise Git hosting (Gitea)
+- **GitHub Server** - GitHub Actions self-hosted runners
 - **Tools Server** - Development and monitoring tools
 - **Artifacts Server** - Package repository (Nexus)
 

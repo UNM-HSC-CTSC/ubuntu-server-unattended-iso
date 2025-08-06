@@ -1,0 +1,85 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Configure GitHub Actions runner
+
+set -euo pipefail
+
+RUNNER_NAME="${1:-}"
+RUNNER_TOKEN="${2:-}"
+RUNNER_URL="${3:-{{ github_url }}}"
+RUNNER_LABELS="${4:-{{ runner_labels }}}"
+RUNNER_GROUP="${5:-{{ runner_group }}}"
+
+if [ -z "$RUNNER_NAME" ] || [ -z "$RUNNER_TOKEN" ]; then
+    echo "Usage: $0 <runner_name> <token> [url] [labels] [group]"
+    echo ""
+    echo "Get a registration token from:"
+    echo "  - Repository: Settings → Actions → Runners → New self-hosted runner"
+    echo "  - Organization: Settings → Actions → Runners → New self-hosted runner"
+    echo "  - Enterprise: Settings → Actions → Runners → New self-hosted runner"
+    exit 1
+fi
+
+# Determine runner user and home
+if [[ "$RUNNER_NAME" =~ runner([0-9]+) ]]; then
+    RUNNER_NUM="${BASH_REMATCH[1]}"
+    RUNNER_USER="runner${RUNNER_NUM}"
+    RUNNER_HOME="/home/runner${RUNNER_NUM}"
+else
+    RUNNER_USER="runner"
+    RUNNER_HOME="/home/runner"
+    RUNNER_NUM="1"
+fi
+
+echo "Configuring runner: $RUNNER_NAME"
+echo "User: $RUNNER_USER"
+echo "URL: $RUNNER_URL"
+echo "Labels: $RUNNER_LABELS"
+echo "Group: $RUNNER_GROUP"
+
+# Stop service if running
+if systemctl is-active --quiet github-runner@${RUNNER_NUM}; then
+    echo "Stopping existing runner service..."
+    systemctl stop github-runner@${RUNNER_NUM}
+fi
+
+# Remove existing configuration
+if [ -f "$RUNNER_HOME/actions-runner/.runner" ]; then
+    echo "Removing existing configuration..."
+    cd "$RUNNER_HOME/actions-runner"
+    sudo -u "$RUNNER_USER" ./config.sh remove --token "$RUNNER_TOKEN" || true
+fi
+
+# Configure runner
+echo "Configuring new runner..."
+cd "$RUNNER_HOME/actions-runner"
+
+{% if runner_ephemeral %}
+EPHEMERAL_FLAG="--ephemeral"
+{% else %}
+EPHEMERAL_FLAG=""
+{% endif %}
+
+sudo -u "$RUNNER_USER" ./config.sh \
+    --unattended \
+    --url "$RUNNER_URL" \
+    --token "$RUNNER_TOKEN" \
+    --name "$RUNNER_NAME" \
+    --labels "$RUNNER_LABELS" \
+    --work "$RUNNER_HOME/work" \
+    {% if runner_group != 'default' %}--runnergroup "$RUNNER_GROUP"{% endif %} \
+    $EPHEMERAL_FLAG \
+    --replace
+
+# Install service
+echo "Installing systemd service..."
+./svc.sh install "$RUNNER_USER"
+
+# Start service
+echo "Starting runner service..."
+systemctl start github-runner@${RUNNER_NUM}
+systemctl enable github-runner@${RUNNER_NUM}
+
+echo ""
+echo "Runner configured successfully!"
+echo "Check status with: systemctl status github-runner@${RUNNER_NUM}"

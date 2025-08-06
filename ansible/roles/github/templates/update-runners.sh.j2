@@ -1,0 +1,202 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Update GitHub Actions runners
+
+set -euo pipefail
+
+ACTION="${1:-check}"
+FORCE="${2:-false}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Get current and latest versions
+get_current_version() {
+    if [ -f /home/runner/actions-runner/config.sh ]; then
+        /home/runner/actions-runner/config.sh --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "unknown"
+    else
+        echo "not installed"
+    fi
+}
+
+get_latest_version() {
+    curl -s https://api.github.com/repos/actions/runner/releases/latest | \
+        jq -r '.tag_name' | sed 's/^v//' || echo "unknown"
+}
+
+# Check for updates
+check_updates() {
+    log "Checking for runner updates..."
+    
+    CURRENT_VERSION=$(get_current_version)
+    LATEST_VERSION=$(get_latest_version)
+    
+    log "Current version: $CURRENT_VERSION"
+    log "Latest version: $LATEST_VERSION"
+    
+    if [ "$CURRENT_VERSION" == "$LATEST_VERSION" ]; then
+        log "Runners are up to date"
+        return 0
+    elif [ "$CURRENT_VERSION" == "unknown" ] || [ "$LATEST_VERSION" == "unknown" ]; then
+        log "ERROR: Could not determine version information"
+        return 1
+    else
+        log "Update available: $CURRENT_VERSION → $LATEST_VERSION"
+        return 2
+    fi
+}
+
+# Update single runner
+update_runner() {
+    local runner_num=$1
+    local runner_user="runner$( [ $runner_num -eq 1 ] && echo '' || echo $runner_num )"
+    local runner_home="/home/$runner_user"
+    
+    log "Updating runner $runner_num..."
+    
+    # Stop runner
+    if systemctl is-active --quiet github-runner@$runner_num; then
+        log "  Stopping runner service..."
+        systemctl stop github-runner@$runner_num
+    fi
+    
+    # Backup current runner
+    if [ -d "$runner_home/actions-runner" ]; then
+        log "  Backing up current runner..."
+        cp -r "$runner_home/actions-runner" "$runner_home/actions-runner.backup.$(date +%Y%m%d)"
+    fi
+    
+    # Download new version
+    log "  Downloading new runner version..."
+    LATEST_VERSION=$(get_latest_version)
+    wget -q -O "/tmp/actions-runner-linux-x64-${LATEST_VERSION}.tar.gz" \
+        "https://github.com/actions/runner/releases/download/v${LATEST_VERSION}/actions-runner-linux-x64-${LATEST_VERSION}.tar.gz"
+    
+    # Extract new version
+    log "  Extracting new version..."
+    cd "$runner_home/actions-runner"
+    tar xzf "/tmp/actions-runner-linux-x64-${LATEST_VERSION}.tar.gz"
+    chown -R "$runner_user:$runner_user" "$runner_home/actions-runner"
+    
+    # Update dependencies
+    log "  Updating dependencies..."
+    sudo -u "$runner_user" ./bin/installdependencies.sh
+    
+    # Start runner
+    log "  Starting runner service..."
+    systemctl start github-runner@$runner_num
+    
+    # Verify
+    if systemctl is-active --quiet github-runner@$runner_num; then
+        log "  Runner $runner_num updated successfully"
+        rm -f "/tmp/actions-runner-linux-x64-${LATEST_VERSION}.tar.gz"
+        return 0
+    else
+        log "  ERROR: Runner $runner_num failed to start after update"
+        return 1
+    fi
+}
+
+# Main logic
+case "$ACTION" in
+    check)
+        check_updates
+        exit $?
+        ;;
+    
+    update)
+        # Check for updates first
+        if ! check_updates; then
+            if [ $? -eq 0 ] && [ "$FORCE" != "true" ]; then
+                log "No updates needed (use --force to update anyway)"
+                exit 0
+            fi
+        fi
+        
+        # Check if maintenance mode should be enabled
+        if [ -f /etc/github-runner/maintenance.flag ]; then
+            log "ERROR: System is in maintenance mode"
+            exit 1
+        fi
+        
+        # Update all runners
+        log "Starting runner updates..."
+        FAILED=0
+        
+        for i in $(seq 1 {{ runner_count }}); do
+            if [ -f "/home/runner$( [ $i -eq 1 ] && echo '' || echo $i )/actions-runner/.runner" ]; then
+                if update_runner $i; then
+                    log "Runner $i updated successfully"
+                else
+                    log "ERROR: Failed to update runner $i"
+                    FAILED=$((FAILED + 1))
+                fi
+            else
+                log "Runner $i not configured, skipping"
+            fi
+        done
+        
+        if [ $FAILED -eq 0 ]; then
+            log "All runners updated successfully"
+            
+            # Write metric
+            cat > /var/lib/prometheus/node-exporter/github_runner_update.prom <<EOF
+# HELP github_runner_update_last_run Last update run timestamp
+# TYPE github_runner_update_last_run gauge
+github_runner_update_last_run $(date +%s)
+
+# HELP github_runner_version Current runner version info
+# TYPE github_runner_version info
+github_runner_version{version="$(get_current_version)"} 1
+EOF
+        else
+            log "ERROR: $FAILED runners failed to update"
+            exit 1
+        fi
+        ;;
+    
+    rollback)
+        # Rollback to previous version
+        log "Rolling back runners to previous version..."
+        
+        for i in $(seq 1 {{ runner_count }}); do
+            runner_user="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+            runner_home="/home/$runner_user"
+            
+            # Find most recent backup
+            BACKUP=$(ls -t "$runner_home"/actions-runner.backup.* 2>/dev/null | head -1)
+            
+            if [ -n "$BACKUP" ]; then
+                log "Rolling back runner $i from $BACKUP..."
+                
+                # Stop runner
+                systemctl stop github-runner@$i || true
+                
+                # Restore backup
+                rm -rf "$runner_home/actions-runner"
+                cp -r "$BACKUP" "$runner_home/actions-runner"
+                chown -R "$runner_user:$runner_user" "$runner_home/actions-runner"
+                
+                # Start runner
+                systemctl start github-runner@$i
+                
+                log "Runner $i rolled back"
+            else
+                log "No backup found for runner $i"
+            fi
+        done
+        ;;
+    
+    *)
+        echo "Usage: $0 {check|update|rollback} [--force]"
+        echo ""
+        echo "  check    - Check for available updates"
+        echo "  update   - Update all runners to latest version"
+        echo "  rollback - Rollback to previous version"
+        echo ""
+        echo "Options:"
+        echo "  --force  - Force update even if already up to date"
+        exit 1
+        ;;
+esac

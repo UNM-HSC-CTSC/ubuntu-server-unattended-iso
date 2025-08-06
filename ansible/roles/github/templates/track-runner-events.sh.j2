@@ -1,0 +1,120 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Track GitHub runner events for monitoring
+
+set -euo pipefail
+
+EVENT_LOG="/var/log/github-runner/events.log"
+METRIC_FILE="/var/lib/prometheus/node-exporter/github_runner_events.prom"
+
+# Ensure log directory exists
+mkdir -p "$(dirname "$EVENT_LOG")"
+
+# Log event
+log_event() {
+    local event_type=$1
+    local runner_id=$2
+    local details=$3
+    
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] EVENT: $event_type RUNNER: $runner_id DETAILS: $details" >> "$EVENT_LOG"
+}
+
+# Update metrics
+update_metrics() {
+    # Count events by type
+    JOB_START=$(grep -c "EVENT: job_start" "$EVENT_LOG" 2>/dev/null || echo 0)
+    JOB_COMPLETE=$(grep -c "EVENT: job_complete" "$EVENT_LOG" 2>/dev/null || echo 0)
+    JOB_FAILED=$(grep -c "EVENT: job_failed" "$EVENT_LOG" 2>/dev/null || echo 0)
+    RUNNER_START=$(grep -c "EVENT: runner_start" "$EVENT_LOG" 2>/dev/null || echo 0)
+    RUNNER_STOP=$(grep -c "EVENT: runner_stop" "$EVENT_LOG" 2>/dev/null || echo 0)
+    
+    cat > "$METRIC_FILE" <<EOF
+# HELP github_runner_events_total Total events by type
+# TYPE github_runner_events_total counter
+github_runner_events_total{event="job_start"} $JOB_START
+github_runner_events_total{event="job_complete"} $JOB_COMPLETE
+github_runner_events_total{event="job_failed"} $JOB_FAILED
+github_runner_events_total{event="runner_start"} $RUNNER_START
+github_runner_events_total{event="runner_stop"} $RUNNER_STOP
+EOF
+}
+
+# Monitor runner services
+monitor_services() {
+    for i in $(seq 1 {{ runner_count }}); do
+        if systemctl is-active --quiet github-runner@$i; then
+            # Check if runner just started
+            if ! grep -q "runner_active:$i" /tmp/runner-state 2>/dev/null; then
+                log_event "runner_start" "$i" "Service started"
+                echo "runner_active:$i" >> /tmp/runner-state
+            fi
+        else
+            # Check if runner just stopped
+            if grep -q "runner_active:$i" /tmp/runner-state 2>/dev/null; then
+                log_event "runner_stop" "$i" "Service stopped"
+                sed -i "/runner_active:$i/d" /tmp/runner-state
+            fi
+        fi
+    done
+}
+
+# Monitor job execution
+monitor_jobs() {
+    for i in $(seq 1 {{ runner_count }}); do
+        RUNNER_USER="runner$( [ $i -eq 1 ] && echo '' || echo $i )"
+        
+        # Check for running job
+        if pgrep -u "$RUNNER_USER" -f "Runner.Worker" > /dev/null 2>&1; then
+            JOB_PID=$(pgrep -u "$RUNNER_USER" -f "Runner.Worker" -n)
+            
+            # Check if this is a new job
+            if ! grep -q "job_active:$i:$JOB_PID" /tmp/runner-state 2>/dev/null; then
+                log_event "job_start" "$i" "PID:$JOB_PID"
+                echo "job_active:$i:$JOB_PID" >> /tmp/runner-state
+            fi
+        else
+            # Check if job just finished
+            if grep -q "job_active:$i:" /tmp/runner-state 2>/dev/null; then
+                JOB_INFO=$(grep "job_active:$i:" /tmp/runner-state | tail -1)
+                JOB_PID=$(echo "$JOB_INFO" | cut -d: -f3)
+                
+                # Try to determine if job succeeded or failed
+                DIAG_DIR="/home/$RUNNER_USER/actions-runner/_diag"
+                if [ -d "$DIAG_DIR" ]; then
+                    LATEST_LOG=$(ls -t "$DIAG_DIR"/Worker_*.log 2>/dev/null | head -1)
+                    if [ -f "$LATEST_LOG" ]; then
+                        if grep -q "Job completed with result: Failed" "$LATEST_LOG"; then
+                            log_event "job_failed" "$i" "PID:$JOB_PID"
+                        else
+                            log_event "job_complete" "$i" "PID:$JOB_PID"
+                        fi
+                    else
+                        log_event "job_complete" "$i" "PID:$JOB_PID (status unknown)"
+                    fi
+                else
+                    log_event "job_complete" "$i" "PID:$JOB_PID"
+                fi
+                
+                sed -i "/job_active:$i:$JOB_PID/d" /tmp/runner-state
+            fi
+        fi
+    done
+}
+
+# Main monitoring loop (if run as daemon)
+if [ "${1:-}" == "--daemon" ]; then
+    echo "Starting event tracking daemon..."
+    > /tmp/runner-state
+    
+    while true; do
+        monitor_services
+        monitor_jobs
+        update_metrics
+        sleep 10
+    done
+else
+    # One-shot monitoring
+    monitor_services
+    monitor_jobs
+    update_metrics
+fi

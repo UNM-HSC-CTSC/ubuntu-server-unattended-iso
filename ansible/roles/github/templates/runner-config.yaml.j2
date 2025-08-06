@@ -1,0 +1,87 @@
+# {{ ansible_managed }}
+# Default GitHub Actions Runner Configuration
+
+# Runner settings
+runner:
+  name: "{{ runner_name | default('hsc-ctsc-runner-' + ansible_hostname) }}"
+  work_directory: "{{ runner_work_dir }}"
+  max_parallel_jobs: 1
+  
+# Labels
+labels:
+{% for label in runner_labels.split(',') %}
+  - {{ label.strip() }}
+{% endfor %}
+{% if runner_extra_labels %}
+{% for label in runner_extra_labels %}
+  - {{ label }}
+{% endfor %}
+{% endif %}
+
+# Runner group
+runner_group: "{{ runner_group }}"
+
+# Ephemeral setting
+ephemeral: {{ runner_ephemeral | lower }}
+
+# Environment variables
+environment:
+  DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+  RUNNER_ALLOW_RUNASROOT: "0"
+{% if docker_enabled %}
+  DOCKER_HOST: "unix:///var/run/docker.sock"
+{% endif %}
+{% if proxy_enabled %}
+  HTTP_PROXY: "{{ proxy_http }}"
+  HTTPS_PROXY: "{{ proxy_https }}"
+  NO_PROXY: "{{ proxy_no_proxy }}"
+{% endif %}
+{% for key, value in runner_env_vars.items() %}
+  {{ key }}: "{{ value }}"
+{% endfor %}
+
+# Features
+features:
+  docker: {{ docker_enabled | lower }}
+  docker_privileged: {{ docker_privileged | lower }}
+  cache: {{ cache_enabled | lower }}
+  
+# Tool cache
+tool_cache:
+  directory: "{{ tools_cache_dir }}"
+  
+# Git configuration
+git:
+  lfs_skip_smudge: {{ git_lfs_skip_smudge | lower }}
+  
+# Resource limits
+limits:
+  cpu: "{{ runner_cpu_limit }}"
+  memory: "{{ runner_memory_limit }}"
+  disk: "{{ runner_disk_quota }}"
+  
+# Hooks (optional)
+{% if runner_pre_job_script %}
+hooks:
+  pre_job: |
+{{ runner_pre_job_script | indent(4, true) }}
+{% endif %}
+{% if runner_post_job_script %}
+  post_job: |
+{{ runner_post_job_script | indent(4, true) }}
+{% endif %}
+
+# Security
+security:
+  allow_untrusted_actions: false
+  allow_runner_as_root: false
+  
+# Logging
+logging:
+  level: normal
+  max_size_mb: {{ cleanup_log_size_mb }}
+  
+# Network
+network:
+  timeout_seconds: 300
+  retry_count: 3

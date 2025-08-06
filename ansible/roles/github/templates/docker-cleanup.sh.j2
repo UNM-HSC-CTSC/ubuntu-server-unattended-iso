@@ -1,0 +1,183 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Docker cleanup script for GitHub Actions runners
+
+set -euo pipefail
+
+LOG_FILE="/var/log/github-runner/docker-cleanup.log"
+DRY_RUN="${1:-false}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Check if Docker is enabled and running
+if [ "{{ docker_enabled }}" != "true" ]; then
+    log "Docker is not enabled, skipping cleanup"
+    exit 0
+fi
+
+if ! systemctl is-active --quiet docker; then
+    log "Docker service is not running, skipping cleanup"
+    exit 0
+fi
+
+log "Starting Docker cleanup (dry_run=$DRY_RUN)"
+
+# Get initial disk usage
+BEFORE_IMAGES=$(docker system df --format 'json' | jq -r '.Images[0].Size' || echo "0")
+BEFORE_CONTAINERS=$(docker system df --format 'json' | jq -r '.Containers[0].Size' || echo "0")
+BEFORE_VOLUMES=$(docker system df --format 'json' | jq -r '.Volumes[0].Size' || echo "0")
+
+log "Current Docker disk usage:"
+log "  Images: $BEFORE_IMAGES"
+log "  Containers: $BEFORE_CONTAINERS"
+log "  Volumes: $BEFORE_VOLUMES"
+
+# Statistics
+REMOVED_CONTAINERS=0
+REMOVED_IMAGES=0
+REMOVED_VOLUMES=0
+REMOVED_NETWORKS=0
+
+# Stop and remove exited containers
+log "Removing stopped containers..."
+if [ "$DRY_RUN" == "false" ]; then
+    CONTAINERS=$(docker ps -aq --filter "status=exited" --filter "status=created")
+    if [ -n "$CONTAINERS" ]; then
+        REMOVED_CONTAINERS=$(echo "$CONTAINERS" | wc -l)
+        docker rm $CONTAINERS 2>/dev/null || true
+        log "  Removed $REMOVED_CONTAINERS containers"
+    fi
+else
+    REMOVED_CONTAINERS=$(docker ps -aq --filter "status=exited" --filter "status=created" | wc -l)
+    log "  Would remove $REMOVED_CONTAINERS containers"
+fi
+
+# Remove dangling images
+log "Removing dangling images..."
+if [ "$DRY_RUN" == "false" ]; then
+    IMAGES=$(docker images -q --filter "dangling=true")
+    if [ -n "$IMAGES" ]; then
+        REMOVED_IMAGES=$(echo "$IMAGES" | wc -l)
+        docker rmi $IMAGES 2>/dev/null || true
+        log "  Removed $REMOVED_IMAGES dangling images"
+    fi
+else
+    REMOVED_IMAGES=$(docker images -q --filter "dangling=true" | wc -l)
+    log "  Would remove $REMOVED_IMAGES dangling images"
+fi
+
+# Remove unused volumes
+log "Removing unused volumes..."
+if [ "$DRY_RUN" == "false" ]; then
+    VOLUMES=$(docker volume ls -q --filter "dangling=true")
+    if [ -n "$VOLUMES" ]; then
+        REMOVED_VOLUMES=$(echo "$VOLUMES" | wc -l)
+        docker volume rm $VOLUMES 2>/dev/null || true
+        log "  Removed $REMOVED_VOLUMES volumes"
+    fi
+else
+    REMOVED_VOLUMES=$(docker volume ls -q --filter "dangling=true" | wc -l)
+    log "  Would remove $REMOVED_VOLUMES volumes"
+fi
+
+# Remove unused networks (except default ones)
+log "Removing unused networks..."
+if [ "$DRY_RUN" == "false" ]; then
+    NETWORKS=$(docker network ls -q --filter "type=custom" | while read net; do
+        if [ $(docker network inspect $net | jq -r '.[0].Containers | length') -eq 0 ]; then
+            echo $net
+        fi
+    done)
+    if [ -n "$NETWORKS" ]; then
+        REMOVED_NETWORKS=$(echo "$NETWORKS" | wc -l)
+        docker network rm $NETWORKS 2>/dev/null || true
+        log "  Removed $REMOVED_NETWORKS networks"
+    fi
+else
+    log "  Skipping network cleanup in dry-run mode"
+fi
+
+# Remove old images (not used in last 30 days)
+log "Checking for old unused images..."
+if command -v docker >/dev/null 2>&1; then
+    # Get images not used by any container
+    UNUSED_IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}|{{.ID}}|{{.CreatedAt}}" | \
+        while IFS='|' read -r name id created; do
+            # Skip if image is in use
+            if ! docker ps -a --format "{{.Image}}" | grep -q "^${name}$\|^${id}"; then
+                # Check if older than 30 days
+                created_ts=$(date -d "$created" +%s 2>/dev/null || echo 0)
+                cutoff_ts=$(date -d "30 days ago" +%s)
+                if [ $created_ts -lt $cutoff_ts ] && [ $created_ts -gt 0 ]; then
+                    echo "$id"
+                fi
+            fi
+        done | sort -u)
+    
+    if [ -n "$UNUSED_IMAGES" ]; then
+        OLD_IMAGE_COUNT=$(echo "$UNUSED_IMAGES" | wc -l)
+        if [ "$DRY_RUN" == "false" ]; then
+            echo "$UNUSED_IMAGES" | xargs docker rmi 2>/dev/null || true
+            log "  Removed $OLD_IMAGE_COUNT old images"
+        else
+            log "  Would remove $OLD_IMAGE_COUNT old images"
+        fi
+    fi
+fi
+
+# Docker system prune (if disk usage is high)
+DISK_USAGE=$(df /var/lib/docker | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ $DISK_USAGE -gt {{ cleanup_disk_threshold_percent }} ]; then
+    log "Docker disk usage high (${DISK_USAGE}%), running system prune..."
+    if [ "$DRY_RUN" == "false" ]; then
+        docker system prune -af --volumes 2>/dev/null || true
+        log "  System prune completed"
+    else
+        log "  Would run system prune"
+    fi
+fi
+
+# Clean build cache
+log "Cleaning build cache..."
+if [ "$DRY_RUN" == "false" ]; then
+    docker builder prune -af 2>/dev/null || true
+    log "  Build cache cleaned"
+fi
+
+# Get final disk usage
+if [ "$DRY_RUN" == "false" ]; then
+    sleep 2  # Give Docker time to update stats
+    AFTER_IMAGES=$(docker system df --format 'json' | jq -r '.Images[0].Size' || echo "0")
+    AFTER_CONTAINERS=$(docker system df --format 'json' | jq -r '.Containers[0].Size' || echo "0")
+    AFTER_VOLUMES=$(docker system df --format 'json' | jq -r '.Volumes[0].Size' || echo "0")
+    
+    log "Docker disk usage after cleanup:"
+    log "  Images: $AFTER_IMAGES (was $BEFORE_IMAGES)"
+    log "  Containers: $AFTER_CONTAINERS (was $BEFORE_CONTAINERS)"
+    log "  Volumes: $AFTER_VOLUMES (was $BEFORE_VOLUMES)"
+fi
+
+# Summary
+log "Docker cleanup complete:"
+log "  Containers removed: $REMOVED_CONTAINERS"
+log "  Images removed: $REMOVED_IMAGES"
+log "  Volumes removed: $REMOVED_VOLUMES"
+log "  Networks removed: $REMOVED_NETWORKS"
+
+# Write metrics
+if [ "$DRY_RUN" == "false" ]; then
+    cat > /var/lib/prometheus/node-exporter/github_runner_docker_cleanup.prom <<EOF
+# HELP github_runner_docker_cleanup_last_run Last Docker cleanup run timestamp
+# TYPE github_runner_docker_cleanup_last_run gauge
+github_runner_docker_cleanup_last_run $(date +%s)
+
+# HELP github_runner_docker_cleanup_removed Items removed by Docker cleanup
+# TYPE github_runner_docker_cleanup_removed gauge
+github_runner_docker_cleanup_removed{type="containers"} $REMOVED_CONTAINERS
+github_runner_docker_cleanup_removed{type="images"} $REMOVED_IMAGES
+github_runner_docker_cleanup_removed{type="volumes"} $REMOVED_VOLUMES
+github_runner_docker_cleanup_removed{type="networks"} $REMOVED_NETWORKS
+EOF
+fi

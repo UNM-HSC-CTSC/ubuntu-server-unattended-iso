@@ -1,0 +1,143 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Display status of all GitHub Actions runners
+
+set -euo pipefail
+
+echo "=== GitHub Actions Runner Status ==="
+echo "Time: $(date)"
+echo "Host: $(hostname -f)"
+echo ""
+
+# Overall status
+TOTAL_RUNNERS={{ runner_count }}
+CONFIGURED_RUNNERS=0
+ONLINE_RUNNERS=0
+BUSY_RUNNERS=0
+
+# Check each runner
+for i in $(seq 1 $TOTAL_RUNNERS); do
+    if [ $i -eq 1 ]; then
+        RUNNER_USER="runner"
+        RUNNER_HOME="/home/runner"
+    else
+        RUNNER_USER="runner$i"
+        RUNNER_HOME="/home/runner$i"
+    fi
+    
+    echo "Runner $i ($RUNNER_USER):"
+    
+    # Check if configured
+    if [ -f "$RUNNER_HOME/actions-runner/.runner" ]; then
+        CONFIGURED_RUNNERS=$((CONFIGURED_RUNNERS + 1))
+        
+        # Get runner info
+        RUNNER_NAME=$(jq -r .name "$RUNNER_HOME/actions-runner/.runner" 2>/dev/null || echo "Unknown")
+        RUNNER_ID=$(jq -r .id "$RUNNER_HOME/actions-runner/.runner" 2>/dev/null || echo "Unknown")
+        
+        echo "  Name: $RUNNER_NAME"
+        echo "  ID: $RUNNER_ID"
+        
+        # Check service status
+        if systemctl is-active --quiet github-runner@$i; then
+            echo "  Service: Running"
+            ONLINE_RUNNERS=$((ONLINE_RUNNERS + 1))
+            
+            # Check if busy
+            if pgrep -u "$RUNNER_USER" -f "Runner.Worker" > /dev/null 2>&1; then
+                echo "  Status: Busy (job running)"
+                BUSY_RUNNERS=$((BUSY_RUNNERS + 1))
+            else
+                echo "  Status: Idle"
+            fi
+        else
+            echo "  Service: Stopped"
+            echo "  Status: Offline"
+        fi
+        
+        # Check for recent errors
+        ERROR_COUNT=$(journalctl -u github-runner@$i --since "1 hour ago" -p err --no-pager | wc -l)
+        if [ $ERROR_COUNT -gt 0 ]; then
+            echo "  Recent errors: $ERROR_COUNT (last hour)"
+        fi
+    else
+        echo "  Status: Not configured"
+    fi
+    
+    # Resource usage
+    if id "$RUNNER_USER" >/dev/null 2>&1; then
+        DISK_USAGE=$(du -sh "$RUNNER_HOME/work" 2>/dev/null | cut -f1 || echo "0")
+        echo "  Work dir size: $DISK_USAGE"
+    fi
+    
+    echo ""
+done
+
+# Summary
+echo "=== Summary ==="
+echo "Total slots: $TOTAL_RUNNERS"
+echo "Configured: $CONFIGURED_RUNNERS"
+echo "Online: $ONLINE_RUNNERS"
+echo "Busy: $BUSY_RUNNERS"
+echo "Available: $((ONLINE_RUNNERS - BUSY_RUNNERS))"
+
+# Docker status
+echo ""
+echo "=== Docker Status ==="
+if systemctl is-active --quiet docker; then
+    echo "Docker: Active"
+    docker version --format 'Version: {{.Server.Version}}' 2>/dev/null || echo "Version: Unknown"
+    
+    # Container count
+    CONTAINER_COUNT=$(docker ps -q | wc -l)
+    echo "Running containers: $CONTAINER_COUNT"
+    
+    # Docker disk usage
+    DOCKER_USAGE=$(docker system df --format 'table {{.Type}}\t{{.Size}}' | tail -n +2)
+    echo ""
+    echo "Docker disk usage:"
+    echo "$DOCKER_USAGE"
+else
+    echo "Docker: Inactive"
+fi
+
+# System resources
+echo ""
+echo "=== System Resources ==="
+echo "CPU Load: $(uptime | awk -F'load average:' '{print $2}')"
+echo "Memory: $(free -h | grep Mem | awk '{print "Used: " $3 " / Total: " $2}')"
+echo "Disk: $(df -h / | tail -1 | awk '{print "Used: " $3 " / Total: " $2 " (" $5 " used)"}')"
+
+# Recent jobs
+echo ""
+echo "=== Recent Jobs (last 24h) ==="
+for i in $(seq 1 $TOTAL_RUNNERS); do
+    if [ $i -eq 1 ]; then
+        RUNNER_HOME="/home/runner"
+    else
+        RUNNER_HOME="/home/runner$i"
+    fi
+    
+    if [ -d "$RUNNER_HOME/actions-runner/_diag" ]; then
+        JOB_COUNT=$(find "$RUNNER_HOME/actions-runner/_diag" -name "*.log" -mtime -1 2>/dev/null | wc -l)
+        if [ $JOB_COUNT -gt 0 ]; then
+            echo "Runner $i: $JOB_COUNT jobs"
+        fi
+    fi
+done
+
+# Health check
+echo ""
+echo "=== Health Check ==="
+if [ -f /etc/github-runner/maintenance.flag ]; then
+    echo "⚠️  MAINTENANCE MODE ACTIVE"
+    echo "Reason: $(cat /etc/github-runner/maintenance.flag)"
+else
+    if [ $ONLINE_RUNNERS -eq 0 ]; then
+        echo "❌ CRITICAL: No runners online"
+    elif [ $ONLINE_RUNNERS -lt $((TOTAL_RUNNERS / 2)) ]; then
+        echo "⚠️  WARNING: Less than 50% runners online"
+    else
+        echo "✅ OK: $ONLINE_RUNNERS/$TOTAL_RUNNERS runners online"
+    fi
+fi
