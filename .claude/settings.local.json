@@ -87,7 +87,11 @@
       "Bash(touch:*)",
       "Bash(gh run list:*)",
       "Bash(gh run watch:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "WebFetch(domain:code.visualstudio.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp:*)"
     ],
     "deny": []
   }

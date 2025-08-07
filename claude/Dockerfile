@@ -42,6 +42,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 RUN npm install -g @anthropic-ai/claude-code \
     && mkdir -p /root/.claude
 
+# Copy MCP server configuration
+COPY .claude/.mcp.json /root/.claude/.mcp.json
+
 # Install Python dependencies for the Ubuntu ISO project
 # PyYAML for YAML validation
 RUN pip3 install --break-system-packages pyyaml yamllint || true

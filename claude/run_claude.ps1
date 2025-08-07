@@ -52,6 +52,12 @@ if ($container) {
         $ghConfigMount = "-v `"${ghConfigPath}:/root/.config/gh`""
     }
     
-    $dockerCmd = "docker run --name claude-code -it -v `"${UserClaudeDir}:/root/.claude`" -v `"${ProjectRoot}:/app`" $ghConfigMount -w /app claude-code"
+    # Pass through Perplexity API key if set
+    $perplexityEnv = ""
+    if ($env:PERPLEXITY_API_KEY) {
+        $perplexityEnv = "-e PERPLEXITY_API_KEY=`"$env:PERPLEXITY_API_KEY`""
+    }
+    
+    $dockerCmd = "docker run --name claude-code -it -v `"${UserClaudeDir}:/root/.claude`" -v `"${ProjectRoot}:/app`" $ghConfigMount $perplexityEnv -w /app claude-code"
     Invoke-Expression $dockerCmd
 }

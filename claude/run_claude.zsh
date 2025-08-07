@@ -49,6 +49,7 @@ else
     -v "$USER_CLAUDE_DIR:/root/.claude" \
     -v "$PROJECT_ROOT:/app" \
     $GH_CONFIG_MOUNT \
+    -e PERPLEXITY_API_KEY="${PERPLEXITY_API_KEY:-}" \
     -w /app \
     claude-code
 fi
